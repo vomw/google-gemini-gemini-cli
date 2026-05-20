@@ -102,6 +102,21 @@ function isSessionIdRecord(record: unknown): record is { sessionId: string } {
   return isStringProperty(record, 'sessionId');
 }
 
+const sanitizeSummary = (s: string) =>
+  s.replace(/\r?\n/g, ' ').replace(/[\x5b\x5d]/g, ' ');
+
+// Unescapes JSON strings extracted via regex (e.g., converting literal \n to actual newlines)
+// Only applied to strings displayed in the UI to avoid unnecessary overhead on structural IDs.
+const decodeJsonString = (s: string | undefined): string | undefined => {
+  if (!s) return undefined;
+  try {
+    const parsed = JSON.parse('"' + s + '"') as unknown;
+    return typeof parsed === 'string' ? parsed : s;
+  } catch {
+    return s;
+  }
+};
+
 export async function loadConversationRecord(
   filePath: string,
   options?: LoadConversationOptions,
@@ -120,6 +135,232 @@ export async function loadConversationRecord(
   }
 
   try {
+    const MAX_FAST_READ = 64 * 1024; // 64KB
+    const stats = await fs.promises.stat(filePath).catch(() => null);
+    const fileSize = stats ? stats.size : 0;
+    const mtime = stats ? stats.mtime.toISOString() : new Date().toISOString();
+
+    if (options?.fastPreview && fileSize > MAX_FAST_READ) {
+      // ULTRA-FAST PATH: Regex extraction from raw buffers
+      const fd = await fs.promises.open(filePath, 'r');
+      try {
+        const headBuffer = Buffer.alloc(MAX_FAST_READ);
+        const { bytesRead: headReadCount } = await fd.read(
+          headBuffer,
+          0,
+          MAX_FAST_READ,
+          0,
+        );
+        const headStr = headBuffer.toString('utf8', 0, headReadCount);
+
+        const TAIL_SIZE = 128 * 1024;
+        let tailStr = '';
+        if (fileSize > MAX_FAST_READ) {
+          const tailReadSize = Math.min(TAIL_SIZE, fileSize - headReadCount);
+          if (tailReadSize > 0) {
+            const tailBuffer = Buffer.alloc(tailReadSize);
+            const { bytesRead: tailReadCount } = await fd.read(
+              tailBuffer,
+              0,
+              tailReadSize,
+              fileSize - tailReadSize,
+            );
+            tailStr = tailBuffer.toString('utf8', 0, tailReadCount);
+          }
+        }
+
+        const getMatch = (str: string, reg: RegExp) => {
+          const m = str.match(reg);
+          return m ? m[1] : undefined;
+        };
+
+        const getLastMatch = (str: string, reg: RegExp) => {
+          const matches = Array.from(
+            str.matchAll(
+              new RegExp(
+                reg.source,
+                reg.flags.includes('g') ? reg.flags : reg.flags + 'g',
+              ),
+            ),
+          );
+          return matches.length > 0
+            ? matches[matches.length - 1][1]
+            : undefined;
+        };
+
+        const sessionId = getMatch(
+          headStr,
+          /"sessionId"\s*:\s*"((?:[^"\\]|\\.)*)"/,
+        );
+        const projectHash = getMatch(
+          headStr,
+          /"projectHash"\s*:\s*"((?:[^"\\]|\\.)*)"/,
+        );
+        let startTime = getMatch(
+          headStr,
+          /"startTime"\s*:\s*"((?:[^"\\]|\\.)*)"/,
+        );
+        let filenameTimestamp: string | undefined;
+
+        // Fallback: Extract startTime from filename if not in header (format: session-YYYY-MM-DDTHH-MM-8CHARS.jsonl)
+        if (!startTime) {
+          const basename = path.basename(filePath);
+          const timeMatch = basename.match(
+            /session-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2})/,
+          );
+          if (timeMatch) {
+            // Convert session-2026-05-10T11-45-... to valid ISO 2026-05-10T11:45:00Z
+            filenameTimestamp =
+              timeMatch[1].replace(/-/g, (m, offset) =>
+                offset > 10 ? ':' : '-',
+              ) + ':00Z';
+          }
+        }
+
+        if (!startTime) {
+          startTime = filenameTimestamp;
+        }
+
+        const lastUpdated =
+          getLastMatch(tailStr, /"lastUpdated"\s*:\s*"([^"]+)"/) ||
+          getLastMatch(headStr, /"lastUpdated"\s*:\s*"([^"]+)"/) ||
+          filenameTimestamp;
+
+        const isJsonl = filePath.endsWith('.jsonl');
+
+        // For .jsonl, summary is strictly inside "$set". For legacy .json, it's at the absolute end of the file.
+        const rawSummary =
+          getLastMatch(
+            tailStr,
+            /"\$set"\s*:\s*\{.*?"summary"\s*:\s*"((?:[^"\\]|\\.)*)"/,
+          ) ||
+          getLastMatch(
+            headStr,
+            /"\$set"\s*:\s*\{.*?"summary"\s*:\s*"((?:[^"\\]|\\.)*)"/,
+          ) ||
+          getLastMatch(
+            tailStr,
+            /"summary"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}\s*$/,
+          ) ||
+          (!isJsonl
+            ? getMatch(headStr, /"summary"\s*:\s*"((?:[^"\\]|\\.)*)"/)
+            : undefined);
+
+        const summary = rawSummary
+          ? sanitizeSummary(decodeJsonString(rawSummary)!)
+          : undefined;
+
+        const rawKind = getMatch(headStr, /"kind"\s*:\s*"([^"]+)"/);
+        const kind =
+          rawKind === 'main' || rawKind === 'subagent' ? rawKind : undefined;
+
+        // Note: fastPreview checks only the head (64KB) and tail (128KB) buffers.
+        // We acknowledge the theoretical risk of a message falling in the unread gap for massive files.
+        // However, simpler truncation logic is preferred here because the potential inaccuracy is trivial
+        // compared to the overall buffer sizes. Introducing a full-file or binary search would defeat
+        // the O(1) performance benefits of this fast path.
+        const hasUserOrAssistantMessage =
+          /"type"\s*:\s*"(user|gemini)"/.test(headStr) ||
+          /"type"\s*:\s*"(user|gemini)"/.test(tailStr);
+
+        let firstUserMessage: string | undefined;
+        let fallbackFirstUserMessage: string | undefined;
+
+        if (isJsonl) {
+          // FAST PREVIEW (.jsonl): Find all potential user message lines
+          const lines = headStr.split('\n');
+          for (const line of lines) {
+            if (
+              line.includes('"type":"user"') ||
+              line.includes('"type": "user"')
+            ) {
+              try {
+                const record = JSON.parse(line) as unknown;
+                if (
+                  hasProperty(record, 'type') &&
+                  record.type === 'user' &&
+                  hasProperty(record, 'content')
+                ) {
+                  const content = record.content;
+                  let msgText = '';
+                  if (Array.isArray(content)) {
+                    msgText = content
+                      .map((p: unknown) => (isTextPart(p) ? p.text : ''))
+                      .join('');
+                  } else if (typeof content === 'string') {
+                    msgText = content;
+                  }
+
+                  if (msgText) {
+                    if (!fallbackFirstUserMessage) {
+                      fallbackFirstUserMessage = msgText; // Keep the very first one as a fallback
+                    }
+                    // Like extractFirstUserMessage, filter out slash commands
+                    if (
+                      !msgText.startsWith('/') &&
+                      !msgText.startsWith('?') &&
+                      msgText.trim().length > 0
+                    ) {
+                      firstUserMessage = msgText;
+                      break; // Found the true first user message
+                    }
+                  }
+                }
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+          if (!firstUserMessage) {
+            firstUserMessage = fallbackFirstUserMessage;
+          }
+        } else {
+          // FAST PREVIEW (legacy .json): Extract first user message text roughly using regex to avoid 1s+ JSON.parse
+          // Bounded cross-line match to prevent bleeding across records
+          const legacyUserMatches = [
+            ...headStr.matchAll(
+              /"type"\s*:\s*"user"[\s\S]{0,500}?"text"\s*:\s*"((?:[^"\\]|\\.)*)"/g,
+            ),
+          ];
+          for (const match of legacyUserMatches) {
+            const msgText = decodeJsonString(match[1]) || match[1];
+            if (!fallbackFirstUserMessage) {
+              fallbackFirstUserMessage = msgText;
+            }
+            if (
+              !msgText.startsWith('/') &&
+              !msgText.startsWith('?') &&
+              msgText.trim().length > 0
+            ) {
+              firstUserMessage = msgText;
+              break;
+            }
+          }
+          if (!firstUserMessage) {
+            firstUserMessage = fallbackFirstUserMessage;
+          }
+        }
+
+        if (sessionId && projectHash) {
+          return {
+            sessionId,
+            projectHash,
+            startTime: startTime || mtime,
+            lastUpdated: lastUpdated || mtime,
+            summary,
+            kind,
+            messages: [],
+            messageCount: options?.precalculatedLineCount ?? 0,
+            hasUserOrAssistantMessage,
+            firstUserMessage,
+            memoryScratchpadIsStale: false,
+          };
+        }
+      } finally {
+        await fd.close();
+      }
+    }
+
     const fileStream = fs.createReadStream(filePath);
     const rl = readline.createInterface({
       input: fileStream,
@@ -140,7 +381,49 @@ export async function loadConversationRecord(
     for await (const line of rl) {
       if (!line.trim()) continue;
       try {
-        const record = JSON.parse(line) as unknown;
+        let record: unknown = null;
+        if (options?.metadataOnly) {
+          if (line.includes('"$set"')) {
+            record = JSON.parse(line) as unknown;
+          } else if (line.includes('"$rewindTo"')) {
+            record = JSON.parse(line) as unknown;
+          } else if (line.includes('"sessionId"')) {
+            record = JSON.parse(line) as unknown;
+          } else if (line.includes('"id"') && line.includes('"type"')) {
+            if (isTrackingMemoryScratchpadFreshness)
+              memoryScratchpadIsStale = true;
+            const idMatch = line.match(/(?:^|\{|,)\s*"id"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+            if (idMatch) {
+              const id = idMatch[1];
+              const typeMatch = line.match(/(?:^|\{|,)\s*"type"\s*:\s*"(user|gemini)"/);
+              const isUser = typeMatch?.[1] === 'user';
+              const isUserOrAssistant = !!typeMatch;
+              messageIds.push(id);
+              messageKinds.set(id, { isUser, isUserOrAssistant });
+              if (!firstUserMessageStr && isUser) {
+                record = JSON.parse(line) as unknown;
+                if (hasProperty(record, 'content')) {
+                  const rawContent = record.content;
+                  if (Array.isArray(rawContent)) {
+                    firstUserMessageStr = rawContent
+                      .map((p: unknown) => (isTextPart(p) ? p.text : ''))
+                      .join('');
+                  } else if (typeof rawContent === 'string') {
+                    firstUserMessageStr = rawContent;
+                  }
+                }
+              }
+            }
+            if (!record) continue;
+          } else {
+            continue;
+          }
+        }
+
+        if (!record) {
+          record = JSON.parse(line) as unknown;
+        }
+
         if (isRewindRecord(record)) {
           if (isTrackingMemoryScratchpadFreshness) {
             memoryScratchpadIsStale = true;
@@ -182,7 +465,8 @@ export async function loadConversationRecord(
             hasProperty(record, 'type') &&
             (record.type === 'user' || record.type === 'gemini');
           // Track message count and first user message
-          if (options?.metadataOnly) {
+          // (Already tracked in metadataOnly optimization above if applicable)
+          if (options?.metadataOnly && !messageKinds.has(id)) {
             messageIds.push(id);
             messageKinds.set(id, { isUser, isUserOrAssistant });
           }
@@ -221,12 +505,24 @@ export async function loadConversationRecord(
             memoryScratchpadIsStale = false;
           }
           // Metadata update
+          if (
+            hasProperty(record.$set, 'summary') &&
+            typeof record.$set.summary === 'string'
+          ) {
+            record.$set.summary = sanitizeSummary(record.$set.summary);
+          }
           metadata = {
             ...metadata,
             ...record.$set,
           };
         } else if (isPartialMetadataRecord(record)) {
           // Initial metadata line
+          if (
+            hasProperty(record, 'summary') &&
+            typeof record.summary === 'string'
+          ) {
+            record.summary = sanitizeSummary(record.summary);
+          }
           metadata = { ...metadata, ...record };
         }
       } catch {
@@ -265,19 +561,23 @@ export async function loadConversationRecord(
       ? Array.from(messageKinds.values()).some((m) => m.isUserOrAssistant)
       : loadedMessages.some((m) => m.type === 'user' || m.type === 'gemini');
 
+    const finalMessageCount =
+      options?.precalculatedLineCount ??
+      (options?.metadataOnly
+        ? metadataMessages.length || messageIds.length
+        : loadedMessages.length);
+
     return {
       sessionId: metadata.sessionId,
       projectHash: metadata.projectHash,
-      startTime: metadata.startTime || new Date().toISOString(),
-      lastUpdated: metadata.lastUpdated || new Date().toISOString(),
+      startTime: metadata.startTime || mtime,
+      lastUpdated: metadata.lastUpdated || mtime,
       summary: metadata.summary,
       memoryScratchpad: metadata.memoryScratchpad,
       directories: metadata.directories,
       kind: metadata.kind,
       messages: options?.metadataOnly ? [] : loadedMessages,
-      messageCount: options?.metadataOnly
-        ? metadataMessages.length || messageIds.length
-        : loadedMessages.length,
+      messageCount: finalMessageCount,
       userMessageCount:
         options?.metadataOnly && metadataMessages.length > 0
           ? metadataMessages.filter((m) => m.type === 'user').length
@@ -991,6 +1291,8 @@ async function parseLegacyRecordFallback(
   | null
 > {
   try {
+    const stats = await fs.promises.stat(filePath).catch(() => null);
+    const mtime = stats ? stats.mtime.toISOString() : new Date().toISOString();
     const fileContent = await fs.promises.readFile(filePath, 'utf8');
     const parsed = JSON.parse(fileContent) as unknown;
 
@@ -1016,6 +1318,8 @@ async function parseLegacyRecordFallback(
         }
         return {
           ...legacyRecord,
+          startTime: legacyRecord.startTime || mtime,
+          lastUpdated: legacyRecord.lastUpdated || mtime,
           messages: [],
           messageCount: legacyRecord.messages?.length || 0,
           userMessageCount:
@@ -1029,8 +1333,11 @@ async function parseLegacyRecordFallback(
       }
       return {
         ...legacyRecord,
+        startTime: legacyRecord.startTime || mtime,
+        lastUpdated: legacyRecord.lastUpdated || mtime,
         userMessageCount:
           legacyRecord.messages?.filter((m) => m.type === 'user').length || 0,
+        messageCount: legacyRecord.messages?.length || 0,
         hasUserOrAssistantMessage:
           legacyRecord.messages?.some(
             (m) => m.type === 'user' || m.type === 'gemini',

@@ -118,6 +118,8 @@ export interface ResumedSessionData {
 export interface LoadConversationOptions {
   maxMessages?: number;
   metadataOnly?: boolean;
+  fastPreview?: boolean;
+  precalculatedLineCount?: number;
 }
 
 export interface RewindRecord {

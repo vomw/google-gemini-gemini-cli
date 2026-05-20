@@ -13,8 +13,10 @@ import {
   type ConversationRecord,
   type MessageRecord,
   loadConversationRecord,
+  resolveToRealPath,
 } from '@google/gemini-cli-core';
-import * as fs from 'node:fs/promises';
+import * as fsPromises from 'node:fs/promises';
+import * as fs from 'node:fs';
 import path from 'node:path';
 import { stripUnsafeCharacters } from '../ui/utils/textUtils.js';
 import { MessageType, type HistoryItemWithoutId } from '../ui/types.js';
@@ -249,7 +251,7 @@ export const getAllSessionFiles = async (
   options: GetSessionOptions = {},
 ): Promise<SessionFileEntry[]> => {
   try {
-    const files = await fs.readdir(chatsDir);
+    const files = await fsPromises.readdir(chatsDir);
     const sessionFiles = files
       .filter(
         (f) =>
@@ -258,98 +260,190 @@ export const getAllSessionFiles = async (
       )
       .sort(); // Sort by filename, which includes timestamp
 
-    const sessionPromises = sessionFiles.map(
-      async (file): Promise<SessionFileEntry> => {
-        const filePath = path.join(chatsDir, file);
+    if (sessionFiles.length === 0) {
+      return [];
+    }
+
+    const getBulkLineCounts = async (): Promise<Map<string, number>> => {
+      const lineCounts = new Map<string, number>();
+      if (options.includeFullContent || sessionFiles.length === 0) {
+        return lineCounts;
+      }
+
+      const countLines = (filePath: string): Promise<number> =>
+        new Promise((resolve) => {
+          try {
+            let lines = 0;
+            const stream = fs.createReadStream(filePath);
+            stream.on('data', (chunk: Buffer | string) => {
+              const buffer = Buffer.isBuffer(chunk)
+                ? chunk
+                : Buffer.from(chunk);
+              let pos = -1;
+              while ((pos = buffer.indexOf(10, pos + 1)) !== -1) {
+                lines++;
+              }
+            });
+            stream.on('end', () => resolve(lines));
+            stream.on('error', () => resolve(0));
+          } catch {
+            resolve(0);
+          }
+        });
+
+      if (process.platform !== 'win32') {
+        // POSIX FAST PATH: Use native wc -l for maximum speed
         try {
-          const content = await loadConversationRecord(filePath, {
-            metadataOnly: !options.includeFullContent,
-          });
-          if (!content) {
-            return { fileName: file, sessionInfo: null };
+          const { execFile } = await import('node:child_process');
+          const { promisify } = await import('node:util');
+          const execFileAsync = promisify(execFile);
+          const filePaths = sessionFiles.map((f) => path.join(chatsDir, f));
+
+          const CMD_BATCH_SIZE = 100;
+          for (let i = 0; i < filePaths.length; i += CMD_BATCH_SIZE) {
+            const batch = filePaths.slice(i, i + CMD_BATCH_SIZE);
+            const { stdout } = await execFileAsync('wc', ['-l', ...batch], {
+              encoding: 'utf8',
+              maxBuffer: 10 * 1024 * 1024,
+            });
+            const lines = stdout.trim().split('\n');
+            for (const line of lines) {
+              const match = line.trim().match(/^(\d+)\s+(.+)$/);
+              if (match && match[2] !== 'total') {
+                const resolvedPath = resolveToRealPath(match[2]);
+                lineCounts.set(
+                  path.basename(resolvedPath),
+                  parseInt(match[1], 10),
+                );
+              }
+            }
           }
-
-          // Validate required fields
-          if (!content.sessionId) {
-            // Missing required fields - treat as corrupted
-            return { fileName: file, sessionInfo: null };
-          }
-
-          const fileTimestamp =
-            !content.startTime || !content.lastUpdated
-              ? (
-                  await fs.stat(filePath).catch(() => undefined)
-                )?.mtime.toISOString()
-              : undefined;
-          const fallbackTimestamp = fileTimestamp ?? new Date().toISOString();
-          const startTime =
-            content.startTime || content.lastUpdated || fallbackTimestamp;
-          const lastUpdated =
-            content.lastUpdated || content.startTime || fallbackTimestamp;
-
-          // Skip sessions that only contain system messages (info, error, warning)
-          if (!content.hasUserOrAssistantMessage) {
-            return { fileName: file, sessionInfo: null };
-          }
-
-          // Skip subagent sessions - these are implementation details of a tool call
-          // and shouldn't be surfaced for resumption in the main agent history.
-          if (content.kind === 'subagent') {
-            return { fileName: file, sessionInfo: null };
-          }
-
-          const firstUserMessage = content.firstUserMessage
-            ? cleanMessage(content.firstUserMessage)
-            : extractFirstUserMessage(content.messages);
-          const isCurrentSession = currentSessionId
-            ? file.includes(currentSessionId.slice(0, 8))
-            : false;
-
-          let fullContent: string | undefined;
-          let messages:
-            | Array<{ role: 'user' | 'assistant'; content: string }>
-            | undefined;
-
-          if (options.includeFullContent) {
-            fullContent = content.messages
-              .map((msg) => partListUnionToString(msg.content))
-              .join(' ');
-            messages = content.messages.map((msg) => ({
-              role:
-                msg.type === 'user'
-                  ? ('user' as const)
-                  : ('assistant' as const),
-              content: partListUnionToString(msg.content),
-            }));
-          }
-
-          const sessionInfo: SessionInfo = {
-            id: content.sessionId,
-            file: file.replace(/\.jsonl?$/, ''),
-            fileName: file,
-            startTime,
-            lastUpdated,
-            messageCount: content.messageCount ?? content.messages.length,
-            displayName: content.summary
-              ? stripUnsafeCharacters(content.summary)
-              : firstUserMessage,
-            firstUserMessage,
-            isCurrentSession,
-            index: 0, // Will be set after sorting valid sessions
-            summary: content.summary,
-            fullContent,
-            messages,
-          };
-
-          return { fileName: file, sessionInfo };
         } catch {
-          // File is corrupted (can't read or parse JSON)
-          return { fileName: file, sessionInfo: null };
+          // Fallback to individual counting if bulk fails
+          const CONCURRENT_LIMIT = 20;
+          for (let i = 0; i < sessionFiles.length; i += CONCURRENT_LIMIT) {
+            const batch = sessionFiles.slice(i, i + CONCURRENT_LIMIT);
+            const batchPromises = batch.map((f) =>
+              countLines(path.join(chatsDir, f)),
+            );
+            const batchCounts = await Promise.all(batchPromises);
+            batchCounts.forEach((count, j) => {
+              lineCounts.set(batch[j], count);
+            });
+          }
         }
-      },
-    );
+      } else {
+        // WINDOWS FALLBACK: Batch-limited Node.js buffer scanning to avoid FD exhaustion
+        const CONCURRENT_LIMIT = 20;
+        for (let i = 0; i < sessionFiles.length; i += CONCURRENT_LIMIT) {
+          const batch = sessionFiles.slice(i, i + CONCURRENT_LIMIT);
+          const batchPromises = batch.map((f) =>
+            countLines(path.join(chatsDir, f)),
+          );
+          const batchCounts = await Promise.all(batchPromises);
+          batchCounts.forEach((count, j) => {
+            lineCounts.set(batch[j], count);
+          });
+        }
+      }
+      return lineCounts;
+    };
 
-    return await Promise.all(sessionPromises);
+    const lineCountsPromise = getBulkLineCounts();
+    const results: SessionFileEntry[] = [];
+    const SESSION_BATCH_SIZE = 100;
+
+    for (let i = 0; i < sessionFiles.length; i += SESSION_BATCH_SIZE) {
+      const batch = sessionFiles.slice(i, i + SESSION_BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(async (file): Promise<SessionFileEntry> => {
+          const filePath = path.join(chatsDir, file);
+          try {
+            const content = await loadConversationRecord(filePath, {
+              metadataOnly: !options.includeFullContent,
+              fastPreview: !options.includeFullContent,
+            });
+            if (!content) {
+              return { fileName: file, sessionInfo: null };
+            }
+
+            if (!content.sessionId) {
+              return { fileName: file, sessionInfo: null };
+            }
+
+            const startTime = content.startTime;
+            const lastUpdated = content.lastUpdated;
+
+            if (!content.hasUserOrAssistantMessage) {
+              return { fileName: file, sessionInfo: null };
+            }
+
+            if (content.kind === 'subagent') {
+              return { fileName: file, sessionInfo: null };
+            }
+
+            const firstUserMessage = content.firstUserMessage
+              ? cleanMessage(content.firstUserMessage)
+              : extractFirstUserMessage(content.messages);
+            const isCurrentSession = currentSessionId
+              ? file.includes(currentSessionId.slice(0, 8))
+              : false;
+
+            let fullContent: string | undefined;
+            let messages:
+              | Array<{ role: 'user' | 'assistant'; content: string }>
+              | undefined;
+
+            if (options.includeFullContent) {
+              fullContent = content.messages
+                .map((msg) => partListUnionToString(msg.content))
+                .join(' ');
+              messages = content.messages.map((msg) => ({
+                role:
+                  msg.type === 'user'
+                    ? ('user' as const)
+                    : ('assistant' as const),
+                content: partListUnionToString(msg.content),
+              }));
+            }
+
+            const sessionInfo: SessionInfo = {
+              id: content.sessionId,
+              file: file.replace(/\.jsonl?$/, ''),
+              fileName: file,
+              startTime,
+              lastUpdated,
+              messageCount: 0, // Patched below after parallel getBulkLineCounts completes
+              displayName: content.summary
+                ? stripUnsafeCharacters(content.summary)
+                : firstUserMessage,
+              firstUserMessage,
+              isCurrentSession,
+              index: 0,
+              summary: content.summary,
+              fullContent,
+              messages,
+            };
+
+            return { fileName: file, sessionInfo };
+          } catch {
+            return { fileName: file, sessionInfo: null };
+          }
+        }),
+      );
+      results.push(...batchResults);
+    }
+
+    const lineCounts = await lineCountsPromise;
+
+    // Patch message counts
+    for (const entry of results) {
+      if (entry.sessionInfo) {
+        entry.sessionInfo.messageCount = lineCounts.get(entry.fileName) ?? 0;
+      }
+    }
+
+    return results;
   } catch (error) {
     // It's expected that the directory might not exist, which is not an error.
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
@@ -421,7 +515,7 @@ export class SessionSelector {
    */
   async sessionExists(id: string): Promise<boolean> {
     const chatsDir = path.join(this.storage.getProjectTempDir(), 'chats');
-    const files = await fs.readdir(chatsDir).catch(() => []);
+    const files = await fsPromises.readdir(chatsDir).catch(() => []);
 
     // The filename format is `session-<TIMESTAMP>-<ID_SLICE(0,8)>.jsonl`
     const shortId = id.slice(0, 8);
