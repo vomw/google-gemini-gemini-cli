@@ -123,6 +123,40 @@ describe('SchemaValidator', () => {
     expect(SchemaValidator.validate(schema, params)).not.toBeNull();
   });
 
+  it('gracefully handles validation that would throw with malformed schemas', () => {
+    // Malformed schema with required field not in properties
+    // This could cause Ajv to access .type on undefined internally.
+    const schema = {
+      type: 'object',
+      required: ['nonexistent_prop'],
+      properties: {
+        file_path: { type: 'string' },
+      },
+    };
+    const params = { file_path: '/some/path' };
+    // Should not throw - should gracefully skip or return validation error
+    expect(() => SchemaValidator.validate(schema, params)).not.toThrow();
+  });
+
+  it('handles boolean schema (JSON Schema boolean form)', () => {
+    // JSON Schema allows true (always valid) or false (always invalid)
+    expect(SchemaValidator.validate(true, { foo: 'bar' })).toBeNull();
+    const result = SchemaValidator.validate(false, { foo: 'bar' });
+    // false schema means everything is invalid
+    expect(result).not.toBeNull();
+  });
+
+  it('handles data with null values gracefully', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+      },
+    };
+    const params = { name: null };
+    expect(() => SchemaValidator.validate(schema, params)).not.toThrow();
+  });
+
   it('allows schemas with draft-07 $schema property', () => {
     const schema = {
       type: 'object',
