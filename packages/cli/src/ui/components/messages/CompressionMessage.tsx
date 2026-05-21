@@ -5,8 +5,10 @@
  */
 
 import { Box, Text } from 'ink';
+import { useState, useEffect } from 'react';
 import type { CompressionProps } from '../../types.js';
 import { CliSpinner } from '../CliSpinner.js';
+import { ProgressBar } from '../ProgressBar.js';
 import { theme } from '../../semantic-colors.js';
 import { SCREEN_READER_MODEL_PREFIX } from '../../textConstants.js';
 import { CompressionStatus } from '@google/gemini-cli-core';
@@ -19,11 +21,27 @@ export interface CompressionDisplayProps {
  * Compression messages appear when the /compress command is run, and show a loading spinner
  * while compression is in progress, followed up by some compression stats.
  */
+const BAR_WIDTH = 30;
+
 export function CompressionMessage({
   compression,
 }: CompressionDisplayProps): React.JSX.Element {
   const { isPending, originalTokenCount, newTokenCount, compressionStatus } =
     compression;
+
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    if (!isPending) {
+      setProgress(100);
+      return;
+    }
+    setProgress(0);
+    const id = setInterval(() => {
+      setProgress((p) => p + (90 - p) * 0.04);
+    }, 150);
+    return () => clearInterval(id);
+  }, [isPending]);
 
   const originalTokens = originalTokenCount ?? 0;
   const newTokens = newTokenCount ?? 0;
@@ -58,24 +76,32 @@ export function CompressionMessage({
   const text = getCompressionText();
 
   return (
-    <Box flexDirection="row">
-      <Box marginRight={1}>
-        {isPending ? (
-          <CliSpinner type="dots" />
-        ) : (
-          <Text color={theme.text.accent}>✦</Text>
-        )}
+    <Box flexDirection="column">
+      <Box flexDirection="row">
+        <Box marginRight={1}>
+          {isPending ? (
+            <CliSpinner type="dots" />
+          ) : (
+            <Text color={theme.text.accent}>✦</Text>
+          )}
+        </Box>
+        <Box>
+          <Text
+            color={
+              compression.isPending ? theme.text.accent : theme.status.success
+            }
+            aria-label={SCREEN_READER_MODEL_PREFIX}
+          >
+            {text}
+          </Text>
+        </Box>
       </Box>
-      <Box>
-        <Text
-          color={
-            compression.isPending ? theme.text.accent : theme.status.success
-          }
-          aria-label={SCREEN_READER_MODEL_PREFIX}
-        >
-          {text}
-        </Text>
-      </Box>
+      {(isPending || progress === 100) && (
+        <Box flexDirection="row" marginLeft={2} marginTop={0}>
+          <ProgressBar value={Math.round(progress)} width={BAR_WIDTH} />
+          <Text color={theme.text.secondary}> {Math.round(progress)}%</Text>
+        </Box>
+      )}
     </Box>
   );
 }

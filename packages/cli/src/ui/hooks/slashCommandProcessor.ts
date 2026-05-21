@@ -179,6 +179,14 @@ export const useSlashCommandProcessor = (
         historyItemContent = {
           type: 'stats',
           duration: message.duration,
+          selectedAuthType: message.selectedAuthType,
+          userEmail: message.userEmail,
+          tier: message.tier,
+          currentModel: message.currentModel,
+          creditBalance: message.creditBalance,
+          pooledRemaining: message.pooledRemaining,
+          pooledLimit: message.pooledLimit,
+          pooledResetTime: message.pooledResetTime,
         };
       } else if (message.type === MessageType.MODEL_STATS) {
         historyItemContent = {

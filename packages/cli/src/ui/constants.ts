@@ -18,13 +18,15 @@ export const SHELL_FOCUS_HINT_DELAY_MS = 5000;
 
 // Tool status symbols used in ToolMessage component
 export const TOOL_STATUS = {
-  SUCCESS: '✓',
-  PENDING: 'o',
-  EXECUTING: '⊷',
-  CONFIRMING: '?',
-  CANCELED: '-',
-  ERROR: 'x',
+  SUCCESS: '●',
+  PENDING: '●',
+  EXECUTING: '●',
+  CONFIRMING: '●',
+  CANCELED: '●',
+  ERROR: '●',
 } as const;
+
+export const TOOL_OUTPUT_CONNECTOR = '⎿';
 
 // Maximum number of MCP resources to display per server before truncating
 export const MAX_MCP_RESOURCES_TO_SHOW = 10;

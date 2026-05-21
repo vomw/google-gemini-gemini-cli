@@ -158,6 +158,18 @@ export const HistoryItemDisplay: React.FC<HistoryItemDisplayProps> = ({
           selectedAuthType={itemForDisplay.selectedAuthType}
           userEmail={itemForDisplay.userEmail}
           tier={itemForDisplay.tier}
+          currentModel={itemForDisplay.currentModel}
+          creditBalance={itemForDisplay.creditBalance}
+          quotaStats={
+            itemForDisplay.pooledRemaining !== undefined ||
+            itemForDisplay.pooledLimit !== undefined
+              ? {
+                  remaining: itemForDisplay.pooledRemaining,
+                  limit: itemForDisplay.pooledLimit,
+                  resetTime: itemForDisplay.pooledResetTime,
+                }
+              : undefined
+          }
         />
       )}
       {itemForDisplay.type === 'model_stats' && (

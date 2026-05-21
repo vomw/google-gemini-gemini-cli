@@ -49,6 +49,7 @@ export enum AuthState {
 // Only defining the state enum needed by the UI
 export enum StreamingState {
   Idle = 'idle',
+  Processing = 'processing',
   Responding = 'responding',
   WaitingForConfirmation = 'waiting_for_confirmation',
 }
@@ -506,6 +507,14 @@ export type Message =
       timestamp: Date;
       duration: string;
       content?: string;
+      selectedAuthType?: string;
+      userEmail?: string;
+      tier?: string;
+      currentModel?: string;
+      creditBalance?: number;
+      pooledRemaining?: number;
+      pooledLimit?: number;
+      pooledResetTime?: string;
     }
   | {
       type: MessageType.MODEL_STATS;

@@ -65,6 +65,9 @@ export interface MaskingResult {
  * are preserved until they collectively reach the threshold.
  */
 export class ToolOutputMaskingService {
+  #lastScannedHistoryLength = -1;
+  #lastScanFoundNothing = false;
+
   async mask(
     history: readonly Content[],
     config: Config,
@@ -73,6 +76,28 @@ export class ToolOutputMaskingService {
       return { newHistory: history, maskedCount: 0, tokensSaved: 0 };
     }
 
+    if (
+      this.#lastScanFoundNothing &&
+      history.length === this.#lastScannedHistoryLength
+    ) {
+      return { newHistory: history, maskedCount: 0, tokensSaved: 0 };
+    }
+
+    const result = await this.scanHistory(history, config);
+    this.#lastScannedHistoryLength = history.length;
+    this.#lastScanFoundNothing = result.maskedCount === 0;
+    return result;
+  }
+
+  resetCache(): void {
+    this.#lastScannedHistoryLength = -1;
+    this.#lastScanFoundNothing = false;
+  }
+
+  private async scanHistory(
+    history: readonly Content[],
+    config: Config,
+  ): Promise<MaskingResult> {
     const maskingConfig = await config.getToolOutputMaskingConfig();
     let cumulativeToolTokens = 0;
     let protectionBoundaryReached = false;

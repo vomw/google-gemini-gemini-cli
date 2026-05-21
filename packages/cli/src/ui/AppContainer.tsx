@@ -145,6 +145,7 @@ import {
 import { relaunchApp } from '../utils/processUtils.js';
 import type { SessionInfo } from '../utils/sessionUtils.js';
 import { useMessageQueue } from './hooks/useMessageQueue.js';
+import { useSlashCommandQueue } from './hooks/useSlashCommandQueue.js';
 import { useMcpStatus } from './hooks/useMcpStatus.js';
 import { useApprovalModeIndicator } from './hooks/useApprovalModeIndicator.js';
 import { useSessionStats } from './contexts/SessionContext.js';
@@ -1315,6 +1316,28 @@ Logging in with Google... Restarting Gemini CLI to continue.
     isMcpReady,
     isCompressing,
   });
+
+  const { queuedSlashCommands, enqueueSlashCommand, dequeueSlashCommand } =
+    useSlashCommandQueue();
+
+  useEffect(() => {
+    if (
+      streamingState === StreamingState.Idle &&
+      !isCompressing &&
+      queuedSlashCommands.length > 0
+    ) {
+      const cmd = dequeueSlashCommand();
+      if (cmd) {
+        void handleSlashCommand(cmd);
+      }
+    }
+  }, [
+    streamingState,
+    isCompressing,
+    queuedSlashCommands,
+    dequeueSlashCommand,
+    handleSlashCommand,
+  ]);
 
   cancelHandlerRef.current = useCallback(
     (shouldRestorePrompt: boolean = true, clearBuffer: boolean = false) => {
@@ -2516,6 +2539,7 @@ Logging in with Google... Restarting Gemini CLI to continue.
       historyRemountKey,
       activeHooks,
       messageQueue,
+      queuedSlashCommands,
       queueErrorMessage,
       showApprovalModeIndicator,
       allowPlanMode,
@@ -2629,6 +2653,7 @@ Logging in with Google... Restarting Gemini CLI to continue.
       historyRemountKey,
       activeHooks,
       messageQueue,
+      queuedSlashCommands,
       queueErrorMessage,
       showApprovalModeIndicator,
       allowPlanMode,
@@ -2727,6 +2752,7 @@ Logging in with Google... Restarting Gemini CLI to continue.
       setQueueErrorMessage,
       addMessage,
       popAllMessages,
+      enqueueSlashCommand,
       handleApiKeySubmit,
       handleApiKeyCancel,
       setBannerVisible,
@@ -2828,6 +2854,7 @@ Logging in with Google... Restarting Gemini CLI to continue.
       setQueueErrorMessage,
       addMessage,
       popAllMessages,
+      enqueueSlashCommand,
       handleApiKeySubmit,
       handleApiKeyCancel,
       setBannerVisible,

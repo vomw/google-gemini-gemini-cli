@@ -146,6 +146,7 @@ export interface SessionStatsState {
   sessionStartTime: Date;
   metrics: SessionMetrics;
   lastPromptTokenCount: number;
+  lastOutputTokenCount: number;
   promptCount: number;
 }
 
@@ -162,6 +163,7 @@ export interface ComputedSessionStats {
   totalCachedTokens: number;
   totalInputTokens: number;
   totalPromptTokens: number;
+  totalOutputTokens: number;
   totalLinesAdded: number;
   totalLinesRemoved: number;
 }
@@ -191,6 +193,7 @@ export const SessionStatsProvider: React.FC<{
     sessionStartTime: new Date(),
     metrics: uiTelemetryService.getMetrics(),
     lastPromptTokenCount: 0,
+    lastOutputTokenCount: 0,
     promptCount: 0,
   });
 
@@ -198,13 +201,16 @@ export const SessionStatsProvider: React.FC<{
     const handleUpdate = ({
       metrics,
       lastPromptTokenCount,
+      lastOutputTokenCount,
     }: {
       metrics: SessionMetrics;
       lastPromptTokenCount: number;
+      lastOutputTokenCount: number;
     }) => {
       setStats((prevState) => {
         if (
           prevState.lastPromptTokenCount === lastPromptTokenCount &&
+          prevState.lastOutputTokenCount === lastOutputTokenCount &&
           areMetricsEqual(prevState.metrics, metrics)
         ) {
           return prevState;
@@ -213,6 +219,7 @@ export const SessionStatsProvider: React.FC<{
           ...prevState,
           metrics,
           lastPromptTokenCount,
+          lastOutputTokenCount,
         };
       });
     };
@@ -232,6 +239,7 @@ export const SessionStatsProvider: React.FC<{
     handleUpdate({
       metrics: uiTelemetryService.getMetrics(),
       lastPromptTokenCount: uiTelemetryService.getLastPromptTokenCount(),
+      lastOutputTokenCount: uiTelemetryService.getLastOutputTokenCount(),
     });
 
     return () => {

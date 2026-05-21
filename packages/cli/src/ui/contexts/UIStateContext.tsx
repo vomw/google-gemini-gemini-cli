@@ -158,6 +158,7 @@ export interface UIState {
   historyRemountKey: number;
   activeHooks: ActiveHook[];
   messageQueue: string[];
+  queuedSlashCommands: readonly string[];
   queueErrorMessage: string | null;
   showApprovalModeIndicator: ApprovalMode;
   allowPlanMode: boolean;

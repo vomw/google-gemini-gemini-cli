@@ -189,6 +189,7 @@ const createMockUIState = (overrides: Partial<UIState> = {}): UIState =>
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       metrics: {} as any,
       lastPromptTokenCount: 0,
+      lastOutputTokenCount: 0,
       promptCount: 0,
     },
     branchName: 'main',
@@ -345,6 +346,7 @@ describe('Composer', () => {
             files: {},
           } as SessionMetrics,
           lastPromptTokenCount: 150,
+          lastOutputTokenCount: 0,
           promptCount: 5,
         },
       });
@@ -777,6 +779,7 @@ describe('Composer', () => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           metrics: {} as any,
           lastPromptTokenCount: Math.floor(tokenLimit(model) * 0.7),
+          lastOutputTokenCount: 0,
           promptCount: 0,
         },
       });

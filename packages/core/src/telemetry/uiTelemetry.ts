@@ -147,6 +147,7 @@ const createInitialMetrics = (): SessionMetrics => ({
 export class UiTelemetryService extends EventEmitter {
   #metrics: SessionMetrics = createInitialMetrics();
   #lastPromptTokenCount = 0;
+  #lastOutputTokenCount = 0;
 
   addEvent(event: UiEvent) {
     switch (event['event.name']) {
@@ -167,6 +168,7 @@ export class UiTelemetryService extends EventEmitter {
     this.emit('update', {
       metrics: this.#metrics,
       lastPromptTokenCount: this.#lastPromptTokenCount,
+      lastOutputTokenCount: this.#lastOutputTokenCount,
     });
   }
 
@@ -178,21 +180,28 @@ export class UiTelemetryService extends EventEmitter {
     return this.#lastPromptTokenCount;
   }
 
+  getLastOutputTokenCount(): number {
+    return this.#lastOutputTokenCount;
+  }
+
   setLastPromptTokenCount(lastPromptTokenCount: number): void {
     this.#lastPromptTokenCount = lastPromptTokenCount;
     this.emit('update', {
       metrics: this.#metrics,
       lastPromptTokenCount: this.#lastPromptTokenCount,
+      lastOutputTokenCount: this.#lastOutputTokenCount,
     });
   }
 
   clear(newSessionId?: string): void {
     this.#metrics = createInitialMetrics();
     this.#lastPromptTokenCount = 0;
+    this.#lastOutputTokenCount = 0;
     this.emit('clear', newSessionId);
     this.emit('update', {
       metrics: this.#metrics,
       lastPromptTokenCount: this.#lastPromptTokenCount,
+      lastOutputTokenCount: this.#lastOutputTokenCount,
     });
   }
 
@@ -273,6 +282,7 @@ export class UiTelemetryService extends EventEmitter {
     this.emit('update', {
       metrics: this.#metrics,
       lastPromptTokenCount: this.#lastPromptTokenCount,
+      lastOutputTokenCount: this.#lastOutputTokenCount,
     });
   }
 
@@ -288,6 +298,8 @@ export class UiTelemetryService extends EventEmitter {
 
     modelMetrics.api.totalRequests++;
     modelMetrics.api.totalLatencyMs += event.duration_ms;
+
+    this.#lastOutputTokenCount = event.usage.output_token_count;
 
     modelMetrics.tokens.prompt += event.usage.input_token_count;
     modelMetrics.tokens.candidates += event.usage.output_token_count;

@@ -92,6 +92,7 @@ const mockSessionStats = {
   sessionStartTime: new Date(),
   promptCount: 0,
   lastPromptTokenCount: 150000,
+  lastOutputTokenCount: 0,
   metrics: {
     files: {
       totalLinesAdded: 12,
@@ -246,6 +247,7 @@ describe('<Footer />', () => {
         sessionStats: {
           ...mockSessionStats,
           lastPromptTokenCount: 1000,
+          lastOutputTokenCount: 0,
         },
       },
       settings: createMockSettings({

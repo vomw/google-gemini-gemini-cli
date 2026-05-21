@@ -5,13 +5,14 @@
  */
 
 import type React from 'react';
-import { Box } from 'ink';
+import { Box, Text } from 'ink';
 import type { IndividualToolCallDisplay } from '../../types.js';
 import { StickyHeader } from '../StickyHeader.js';
 import { ToolResultDisplay } from './ToolResultDisplay.js';
 import {
   ToolStatusIndicator,
   ToolInfo,
+  ToolOutputConnector,
   TrailingIndicator,
   McpProgressIndicator,
   type TextEmphasis,
@@ -118,39 +119,48 @@ export const ToolMessage: React.FC<ToolMessageProps> = ({
         />
         {emphasis === 'high' && <TrailingIndicator />}
       </StickyHeader>
-      <Box
-        width={terminalWidth}
-        borderStyle="round"
-        borderColor={borderColor}
-        borderDimColor={borderDimColor}
-        borderTop={false}
-        borderBottom={false}
-        borderLeft={true}
-        borderRight={true}
-        paddingX={1}
-        flexDirection="column"
-      >
+      <Box width={terminalWidth} flexDirection="column">
         {status === CoreToolCallStatus.Executing && progress !== undefined && (
-          <McpProgressIndicator
-            progress={progress}
-            total={progressTotal}
-            message={progressMessage}
-            barWidth={20}
-          />
+          <ToolOutputConnector>
+            <McpProgressIndicator
+              progress={progress}
+              total={progressTotal}
+              message={progressMessage}
+              barWidth={20}
+            />
+          </ToolOutputConnector>
         )}
-        <ToolResultDisplay
-          resultDisplay={resultDisplay}
-          availableTerminalHeight={availableTerminalHeight}
-          terminalWidth={terminalWidth}
-          renderOutputAsMarkdown={renderOutputAsMarkdown}
-          hasFocus={isThisShellFocused}
-          maxLines={
-            kind === Kind.Agent && availableTerminalHeight !== undefined
-              ? SUBAGENT_MAX_LINES
-              : undefined
-          }
-          overflowDirection={kind === Kind.Agent ? 'bottom' : 'top'}
-        />
+        {status === CoreToolCallStatus.Executing &&
+          !resultDisplay &&
+          progress === undefined && (
+            <ToolOutputConnector color={borderColor}>
+              <Text
+                color={borderDimColor ? undefined : borderColor}
+                dimColor={borderDimColor}
+              >
+                Waiting…
+              </Text>
+            </ToolOutputConnector>
+          )}
+        {resultDisplay && (
+          <ToolOutputConnector color={borderColor}>
+            <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+              <ToolResultDisplay
+                resultDisplay={resultDisplay}
+                availableTerminalHeight={availableTerminalHeight}
+                terminalWidth={terminalWidth}
+                renderOutputAsMarkdown={renderOutputAsMarkdown}
+                hasFocus={isThisShellFocused}
+                maxLines={
+                  kind === Kind.Agent && availableTerminalHeight !== undefined
+                    ? SUBAGENT_MAX_LINES
+                    : undefined
+                }
+                overflowDirection={kind === Kind.Agent ? 'bottom' : 'top'}
+              />
+            </Box>
+          </ToolOutputConnector>
+        )}
         {isThisShellFocused && config && (
           <Box paddingLeft={STATUS_INDICATOR_WIDTH} marginTop={1}>
             <ShellInputPrompt

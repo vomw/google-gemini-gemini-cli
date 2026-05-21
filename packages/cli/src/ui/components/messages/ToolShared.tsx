@@ -7,11 +7,11 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 import { ToolCallStatus, mapCoreStatusToDisplayStatus } from '../../types.js';
-import { CliSpinner } from '../CliSpinner.js';
 import {
   SHELL_COMMAND_NAME,
   SHELL_NAME,
   TOOL_STATUS,
+  TOOL_OUTPUT_CONNECTOR,
   SHELL_FOCUS_HINT_DELAY_MS,
 } from '../../constants.js';
 import { theme } from '../../semantic-colors.js';
@@ -149,42 +149,43 @@ export const ToolStatusIndicator: React.FC<ToolStatusIndicatorProps> = ({
 }) => {
   const status = mapCoreStatusToDisplayStatus(coreStatus);
   const isShell = isShellTool(name);
-  const statusColor = isFocused
-    ? theme.ui.focus
-    : isShell
-      ? theme.ui.active
-      : theme.status.warning;
+
+  const color = React.useMemo(() => {
+    if (status === ToolCallStatus.Error) return theme.status.error;
+    if (status === ToolCallStatus.Canceled) return theme.text.secondary;
+    if (status === ToolCallStatus.Executing) {
+      return isFocused
+        ? theme.ui.focus
+        : isShell
+          ? theme.ui.active
+          : theme.status.warning;
+    }
+    if (status === ToolCallStatus.Confirming) {
+      return isFocused ? theme.ui.focus : theme.status.warning;
+    }
+    return theme.status.success;
+  }, [status, isFocused, isShell]);
+
+  const ariaLabel = React.useMemo(() => {
+    switch (status) {
+      case ToolCallStatus.Success:
+        return 'Success:';
+      case ToolCallStatus.Error:
+        return 'Error:';
+      case ToolCallStatus.Canceled:
+        return 'Canceled:';
+      case ToolCallStatus.Confirming:
+        return 'Confirming:';
+      default:
+        return undefined;
+    }
+  }, [status]);
 
   return (
     <Box minWidth={STATUS_INDICATOR_WIDTH}>
-      {status === ToolCallStatus.Pending && (
-        <Text color={theme.status.success}>{TOOL_STATUS.PENDING}</Text>
-      )}
-      {status === ToolCallStatus.Executing && (
-        <Text color={statusColor}>
-          <CliSpinner type="toggle" />
-        </Text>
-      )}
-      {status === ToolCallStatus.Success && (
-        <Text color={theme.status.success} aria-label={'Success:'}>
-          {TOOL_STATUS.SUCCESS}
-        </Text>
-      )}
-      {status === ToolCallStatus.Confirming && (
-        <Text color={statusColor} aria-label={'Confirming:'}>
-          {TOOL_STATUS.CONFIRMING}
-        </Text>
-      )}
-      {status === ToolCallStatus.Canceled && (
-        <Text color={statusColor} aria-label={'Canceled:'} bold>
-          {TOOL_STATUS.CANCELED}
-        </Text>
-      )}
-      {status === ToolCallStatus.Error && (
-        <Text color={theme.status.error} aria-label={'Error:'} bold>
-          {TOOL_STATUS.ERROR}
-        </Text>
-      )}
+      <Text color={color} aria-label={ariaLabel}>
+        {TOOL_STATUS.SUCCESS}
+      </Text>
     </Box>
   );
 };
@@ -247,11 +248,12 @@ export const ToolInfo: React.FC<ToolInfoProps> = ({
             (redirection from {originalRequestName})
           </Text>
         )}
-        {!isCompletedAskUser && (
-          <>
-            {' '}
-            <Text color={theme.text.secondary}>{description}</Text>
-          </>
+        {!isCompletedAskUser && description && (
+          <Text color={theme.text.secondary}>
+            {'('}
+            {description}
+            {')'}
+          </Text>
         )}
       </Text>
     </Box>
@@ -311,4 +313,19 @@ export const TrailingIndicator: React.FC = () => (
     {' '}
     ←
   </Text>
+);
+
+interface ToolOutputConnectorProps {
+  children: React.ReactNode;
+  color?: string;
+}
+
+export const ToolOutputConnector: React.FC<ToolOutputConnectorProps> = ({
+  children,
+  color,
+}) => (
+  <Box flexDirection="row" paddingLeft={STATUS_INDICATOR_WIDTH}>
+    <Text color={color ?? theme.text.secondary}>{TOOL_OUTPUT_CONNECTOR} </Text>
+    {children}
+  </Box>
 );

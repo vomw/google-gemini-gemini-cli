@@ -44,6 +44,7 @@ const renderWithMockedStats = async (
       sessionStartTime: new Date(),
       metrics,
       lastPromptTokenCount: 0,
+      lastOutputTokenCount: 0,
       promptCount: 5,
     },
 
@@ -521,6 +522,7 @@ describe('<ModelStatsDisplay />', () => {
           },
         },
         lastPromptTokenCount: 0,
+        lastOutputTokenCount: 0,
         promptCount: 5,
       },
 

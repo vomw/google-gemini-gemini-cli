@@ -44,7 +44,11 @@ export const GeminiRespondingSpinner: React.FC<
 
   // If a hook is active, we want to show the hook icon (nonRespondingDisplay)
   // to be consistent, instead of the rainbow spinner which means "Gemini is talking".
-  if (streamingState === StreamingState.Responding && !isHookActive) {
+  if (
+    (streamingState === StreamingState.Responding ||
+      streamingState === StreamingState.Processing) &&
+    !isHookActive
+  ) {
     return (
       <GeminiSpinner
         spinnerType={spinnerType}

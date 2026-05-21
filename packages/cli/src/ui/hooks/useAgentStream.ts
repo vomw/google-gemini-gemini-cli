@@ -373,11 +373,13 @@ export const useAgentStream = ({
       );
 
       try {
+        setStreamingState(StreamingState.Processing);
         const { streamId } = await agent.send({
           message: { content: parts },
         });
         currentStreamIdRef.current = streamId;
       } catch (err) {
+        setStreamingState(StreamingState.Idle);
         addItem(
           { type: MessageType.ERROR, text: getErrorMessage(err) },
           timestamp,

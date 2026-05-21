@@ -25,6 +25,7 @@ import { computeSessionStats } from '../utils/computeStats.js';
 import { useSettings } from '../contexts/SettingsContext.js';
 import type { QuotaStats } from '../types.js';
 import { LlmRole } from '@google/gemini-cli-core';
+import { QuotaStatsInfo } from './QuotaStatsInfo.js';
 
 // A more flexible and powerful StatRow component
 interface StatRowProps {
@@ -247,6 +248,7 @@ export const StatsDisplay: React.FC<StatsDisplayProps> = ({
   userEmail,
   tier,
   creditBalance,
+  quotaStats,
 }) => {
   const { stats } = useSessionStats();
   const { metrics } = stats;
@@ -331,6 +333,24 @@ export const StatsDisplay: React.FC<StatsDisplayProps> = ({
             </Text>
           </StatRow>
         )}
+        {quotaStats?.remaining !== undefined &&
+          quotaStats?.limit !== undefined &&
+          quotaStats.limit > 0 && (
+            <StatRow title="Rate Limit:">
+              <Text color={theme.text.primary}>
+                {quotaStats.remaining.toLocaleString()} /{' '}
+                {quotaStats.limit.toLocaleString()} remaining
+              </Text>
+              <Box marginLeft={1}>
+                <QuotaStatsInfo
+                  remaining={quotaStats.remaining}
+                  limit={quotaStats.limit}
+                  resetTime={quotaStats.resetTime}
+                  showDetails={false}
+                />
+              </Box>
+            </StatRow>
+          )}
         <StatRow title="Tool Calls:">
           <Text color={theme.text.primary}>
             {tools.totalCalls} ({' '}

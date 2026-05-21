@@ -579,6 +579,7 @@ const mockUIActions: UIActions = {
   setQueueErrorMessage: vi.fn(),
   addMessage: vi.fn(),
   popAllMessages: vi.fn(),
+  enqueueSlashCommand: vi.fn(),
   handleApiKeySubmit: vi.fn(),
   handleApiKeyCancel: vi.fn(),
   setBannerVisible: vi.fn(),

@@ -74,6 +74,7 @@ export interface UIActions {
   setQueueErrorMessage: (message: string | null) => void;
   addMessage: (message: string) => void;
   popAllMessages: () => string | undefined;
+  enqueueSlashCommand: (rawInput: string) => void;
   handleApiKeySubmit: (apiKey: string) => Promise<void>;
   handleApiKeyCancel: () => void;
   setBannerVisible: (visible: boolean) => void;
