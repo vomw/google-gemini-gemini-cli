@@ -104,13 +104,15 @@ export class SchemaValidator {
     try {
       valid = validate(data);
     } catch (error) {
+      const errorMessage = `Schema validation encountered an internal error: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
       debugLogger.warn(
-        `Schema validation threw during data validation (${
+        `${errorMessage} (${
           (schema as Record<string, unknown>)?.['$schema'] ?? '<no $schema>'
-        }): ${error instanceof Error ? error.message : String(error)}. ` +
-          'Skipping parameter validation.',
+        })`,
       );
-      return null;
+      return errorMessage;
     }
     if (!valid && validate.errors) {
       return validator.errorsText(validate.errors, { dataVar: 'params' });
