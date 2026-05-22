@@ -13,21 +13,23 @@ const START_DELIMITER = '**';
 const END_DELIMITER = '**';
 
 /**
- * Regex matching characters from CJK (Chinese, Japanese, Korean) scripts.
- * These are non-Latin scripts that can sometimes appear in model thoughts
- * even when the user's language is English, causing display issues.
+ * Regex matching characters from CJK (Chinese, Japanese, Korean) scripts,
+ * including punctuation and fullwidth forms. These are non-Latin scripts
+ * that can sometimes appear in model thoughts even when the user's language
+ * is English, causing display issues.
  *
  * Matches the following Unicode ranges:
+ * - U+3000–U+303F: CJK Symbols and Punctuation
  * - U+3400–U+4DBF: CJK Unified Ideographs Extension A
  * - U+4E00–U+9FFF: CJK Unified Ideographs
  * - U+F900–U+FAFF: CJK Compatibility Ideographs
  * - U+3040–U+309F: Hiragana (Japanese)
  * - U+30A0–U+30FF: Katakana (Japanese)
  * - U+AC00–U+D7AF: Hangul Syllables (Korean)
- * - U+FF66–U+FF9F: Halfwidth Katakana
+ * - U+FF00–U+FFEF: Halfwidth and Fullwidth Forms
  */
 const CJK_CHARS_REGEX =
-  /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\uFF66-\uFF9F]/g;
+  /[\u3000-\u303F\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\uFF00-\uFFEF]/g;
 
 /**
  * Parses a raw thought string into a structured ThoughtSummary object.
