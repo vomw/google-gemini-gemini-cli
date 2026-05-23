@@ -22,6 +22,11 @@ import { loadApiKey } from './apiKeyCredentialStorage.js';
 import { FakeContentGenerator } from './fakeContentGenerator.js';
 import { RecordingContentGenerator } from './recordingContentGenerator.js';
 import { resetVersionCache } from '../utils/version.js';
+import {
+  PREVIEW_GEMINI_3_1_CUSTOM_TOOLS_MODEL,
+  PREVIEW_GEMINI_3_1_FLASH_LITE_MODEL,
+  PREVIEW_GEMINI_3_1_MODEL,
+} from '../config/models.js';
 
 vi.mock('../code_assist/codeAssist.js');
 vi.mock('@google/genai');
@@ -202,6 +207,202 @@ describe('createContentGenerator', () => {
     });
     expect(generator).toEqual(
       new LoggingContentGenerator(mockGenerator.models, mockConfig),
+    );
+  });
+
+  it('should use Config resolved model as the content generator model source', async () => {
+    const mockConfig = {
+      getModel: vi.fn().mockReturnValue('pro'),
+      getResolvedModel: vi.fn().mockResolvedValue(PREVIEW_GEMINI_3_1_MODEL),
+      getGemini31Launched: vi.fn().mockResolvedValue(false),
+      getGemini31FlashLiteLaunched: vi.fn().mockResolvedValue(false),
+      getUseCustomToolModel: vi.fn().mockResolvedValue(false),
+      getProxy: vi.fn().mockReturnValue(undefined),
+      getUsageStatisticsEnabled: () => true,
+      getClientName: vi.fn().mockReturnValue(undefined),
+    } as unknown as Config;
+
+    vi.stubEnv('CLI_VERSION', '1.2.3');
+    vi.stubEnv('TERM_PROGRAM', 'iTerm.app');
+    vi.stubEnv('VSCODE_PID', '');
+    vi.stubEnv('GITHUB_SHA', '');
+    vi.stubEnv('GEMINI_CLI_SURFACE', '');
+
+    const mockGenerator = {
+      models: {},
+    } as unknown as GoogleGenAI;
+    vi.mocked(GoogleGenAI).mockImplementation(() => mockGenerator as never);
+
+    await createContentGenerator(
+      {
+        apiKey: 'test-api-key',
+        authType: AuthType.GATEWAY,
+        baseUrl: 'https://gateway.test.local',
+      },
+      mockConfig,
+    );
+
+    expect(mockConfig.getResolvedModel).toHaveBeenCalledWith(
+      'pro',
+      AuthType.GATEWAY,
+    );
+    expect(mockConfig.getGemini31Launched).not.toHaveBeenCalled();
+    expect(mockConfig.getGemini31FlashLiteLaunched).not.toHaveBeenCalled();
+    expect(mockConfig.getUseCustomToolModel).not.toHaveBeenCalled();
+    expect(GoogleGenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        httpOptions: expect.objectContaining({
+          headers: expect.objectContaining({
+            'User-Agent': expect.stringContaining(
+              `/${PREVIEW_GEMINI_3_1_MODEL} (`,
+            ),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('should resolve Vertex pro alias to custom tools model when enabled', async () => {
+    const mockConfig = {
+      getModel: vi.fn().mockReturnValue('pro'),
+      getProxy: vi.fn().mockReturnValue(undefined),
+      getUsageStatisticsEnabled: () => true,
+      getClientName: vi.fn().mockReturnValue(undefined),
+      getGemini31Launched: vi.fn().mockResolvedValue(true),
+      getGemini31FlashLiteLaunched: vi.fn().mockResolvedValue(true),
+      getUseCustomToolModel: vi.fn().mockResolvedValue(true),
+      getHasAccessToPreviewModel: vi.fn().mockReturnValue(true),
+    } as unknown as Config;
+
+    vi.stubEnv('CLI_VERSION', '1.2.3');
+    vi.stubEnv('TERM_PROGRAM', 'iTerm.app');
+    vi.stubEnv('VSCODE_PID', '');
+    vi.stubEnv('GITHUB_SHA', '');
+    vi.stubEnv('GEMINI_CLI_SURFACE', '');
+
+    const mockGenerator = {
+      models: {},
+    } as unknown as GoogleGenAI;
+    vi.mocked(GoogleGenAI).mockImplementation(() => mockGenerator as never);
+
+    await createContentGenerator(
+      {
+        authType: AuthType.USE_VERTEX_AI,
+        vertexai: true,
+      },
+      mockConfig,
+    );
+
+    expect(GoogleGenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        vertexai: true,
+        httpOptions: expect.objectContaining({
+          headers: expect.objectContaining({
+            'User-Agent': expect.stringContaining(
+              `/${PREVIEW_GEMINI_3_1_CUSTOM_TOOLS_MODEL} (`,
+            ),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('should resolve Gateway pro alias to the standard Gemini 3.1 model', async () => {
+    const mockConfig = {
+      getModel: vi.fn().mockReturnValue('pro'),
+      getProxy: vi.fn().mockReturnValue(undefined),
+      getUsageStatisticsEnabled: () => true,
+      getClientName: vi.fn().mockReturnValue(undefined),
+      getGemini31Launched: vi.fn().mockResolvedValue(true),
+      getGemini31FlashLiteLaunched: vi.fn().mockResolvedValue(true),
+      getUseCustomToolModel: vi.fn().mockResolvedValue(false),
+      getHasAccessToPreviewModel: vi.fn().mockReturnValue(true),
+    } as unknown as Config;
+
+    vi.stubEnv('CLI_VERSION', '1.2.3');
+    vi.stubEnv('TERM_PROGRAM', 'iTerm.app');
+    vi.stubEnv('VSCODE_PID', '');
+    vi.stubEnv('GITHUB_SHA', '');
+    vi.stubEnv('GEMINI_CLI_SURFACE', '');
+
+    const mockGenerator = {
+      models: {},
+    } as unknown as GoogleGenAI;
+    vi.mocked(GoogleGenAI).mockImplementation(() => mockGenerator as never);
+
+    await createContentGenerator(
+      {
+        apiKey: 'test-api-key',
+        authType: AuthType.GATEWAY,
+        baseUrl: 'https://gateway.test.local',
+      },
+      mockConfig,
+    );
+
+    expect(mockConfig.getGemini31Launched).toHaveBeenCalledWith(
+      AuthType.GATEWAY,
+    );
+    expect(mockConfig.getUseCustomToolModel).toHaveBeenCalledWith(
+      AuthType.GATEWAY,
+    );
+    expect(GoogleGenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        httpOptions: expect.objectContaining({
+          headers: expect.objectContaining({
+            'User-Agent': expect.stringContaining(
+              `/${PREVIEW_GEMINI_3_1_MODEL} (`,
+            ),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('should resolve Gateway flash-lite alias to the Gemini 3.1 flash-lite model', async () => {
+    const mockConfig = {
+      getModel: vi.fn().mockReturnValue('flash-lite'),
+      getProxy: vi.fn().mockReturnValue(undefined),
+      getUsageStatisticsEnabled: () => true,
+      getClientName: vi.fn().mockReturnValue(undefined),
+      getGemini31Launched: vi.fn().mockResolvedValue(true),
+      getGemini31FlashLiteLaunched: vi.fn().mockResolvedValue(true),
+      getUseCustomToolModel: vi.fn().mockResolvedValue(false),
+      getHasAccessToPreviewModel: vi.fn().mockReturnValue(true),
+    } as unknown as Config;
+
+    vi.stubEnv('CLI_VERSION', '1.2.3');
+    vi.stubEnv('TERM_PROGRAM', 'iTerm.app');
+    vi.stubEnv('VSCODE_PID', '');
+    vi.stubEnv('GITHUB_SHA', '');
+    vi.stubEnv('GEMINI_CLI_SURFACE', '');
+
+    const mockGenerator = {
+      models: {},
+    } as unknown as GoogleGenAI;
+    vi.mocked(GoogleGenAI).mockImplementation(() => mockGenerator as never);
+
+    await createContentGenerator(
+      {
+        apiKey: 'test-api-key',
+        authType: AuthType.GATEWAY,
+        baseUrl: 'https://gateway.test.local',
+      },
+      mockConfig,
+    );
+
+    expect(mockConfig.getGemini31FlashLiteLaunched).toHaveBeenCalledWith(
+      AuthType.GATEWAY,
+    );
+    expect(GoogleGenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        httpOptions: expect.objectContaining({
+          headers: expect.objectContaining({
+            'User-Agent': expect.stringContaining(
+              `/${PREVIEW_GEMINI_3_1_FLASH_LITE_MODEL} (`,
+            ),
+          }),
+        }),
+      }),
     );
   });
 

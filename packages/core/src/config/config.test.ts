@@ -66,6 +66,8 @@ import { DEFAULT_MODEL_CONFIGS } from './defaultModelConfigs.js';
 import {
   DEFAULT_GEMINI_MODEL,
   PREVIEW_GEMINI_3_1_MODEL,
+  PREVIEW_GEMINI_3_1_CUSTOM_TOOLS_MODEL,
+  PREVIEW_GEMINI_3_1_FLASH_LITE_MODEL,
   DEFAULT_GEMINI_MODEL_AUTO,
   PREVIEW_GEMINI_MODEL_AUTO,
   PREVIEW_GEMINI_FLASH_MODEL,
@@ -694,6 +696,12 @@ describe('Server Config (config.ts)', () => {
         },
       );
 
+      it('should use an auth override before contentGeneratorConfig is assigned', () => {
+        const config = new Config(baseParams);
+
+        expect(config.getGemini31LaunchedSync(AuthType.GATEWAY)).toBe(true);
+      });
+
       it('should fallback to experiments for other auth types', async () => {
         vi.mocked(getExperiments).mockResolvedValue({
           experimentIds: [],
@@ -716,6 +724,102 @@ describe('Server Config (config.ts)', () => {
       });
     });
 
+    describe('getUseCustomToolModel', () => {
+      it.each([AuthType.USE_GEMINI, AuthType.USE_VERTEX_AI])(
+        'should return true for %s when Gemini 3.1 is launched',
+        async (authType) => {
+          const config = new Config(baseParams);
+          vi.mocked(createContentGeneratorConfig).mockResolvedValue({
+            authType,
+          });
+
+          await config.refreshAuth(authType);
+
+          expect(config.getUseCustomToolModelSync()).toBe(true);
+          await expect(config.getUseCustomToolModel()).resolves.toBe(true);
+        },
+      );
+
+      it.each([AuthType.GATEWAY, AuthType.LOGIN_WITH_GOOGLE])(
+        'should return false for %s when Gemini 3.1 is launched',
+        async (authType) => {
+          const config = new Config({
+            ...baseParams,
+            experiments: {
+              experimentIds: [],
+              flags: {
+                [ExperimentFlags.GEMINI_3_1_PRO_LAUNCHED]: {
+                  flagId: ExperimentFlags.GEMINI_3_1_PRO_LAUNCHED,
+                  boolValue: true,
+                },
+              },
+            },
+          } as unknown as ConfigParameters);
+          vi.mocked(createContentGeneratorConfig).mockResolvedValue({
+            authType,
+          });
+
+          await config.refreshAuth(authType);
+
+          expect(config.getUseCustomToolModelSync()).toBe(false);
+          await expect(config.getUseCustomToolModel()).resolves.toBe(false);
+        },
+      );
+
+      it('should use an auth override before contentGeneratorConfig is assigned', async () => {
+        const config = new Config(baseParams);
+
+        expect(config.getUseCustomToolModelSync(AuthType.USE_VERTEX_AI)).toBe(
+          true,
+        );
+        await expect(
+          config.getUseCustomToolModel(AuthType.USE_VERTEX_AI),
+        ).resolves.toBe(true);
+        expect(config.getUseCustomToolModelSync(AuthType.GATEWAY)).toBe(false);
+        await expect(
+          config.getUseCustomToolModel(AuthType.GATEWAY),
+        ).resolves.toBe(false);
+      });
+    });
+
+    describe('getResolvedModel', () => {
+      it('should use the auth-aware Gemini 3.1 launch predicate for Gateway', async () => {
+        const config = new Config(baseParams);
+        config.setHasAccessToPreviewModel(true);
+
+        expect(config.getResolvedModelSync('pro', AuthType.GATEWAY)).toBe(
+          PREVIEW_GEMINI_3_1_MODEL,
+        );
+        await expect(
+          config.getResolvedModel('pro', AuthType.GATEWAY),
+        ).resolves.toBe(PREVIEW_GEMINI_3_1_MODEL);
+      });
+
+      it('should use the auth-aware Gemini 3.1 Flash Lite predicate for Gateway', async () => {
+        const config = new Config(baseParams);
+        config.setHasAccessToPreviewModel(true);
+
+        expect(
+          config.getResolvedModelSync('flash-lite', AuthType.GATEWAY),
+        ).toBe(PREVIEW_GEMINI_3_1_FLASH_LITE_MODEL);
+        await expect(
+          config.getResolvedModel('flash-lite', AuthType.GATEWAY),
+        ).resolves.toBe(PREVIEW_GEMINI_3_1_FLASH_LITE_MODEL);
+      });
+
+      it('should use the custom tools model for supported auth types', async () => {
+        const config = new Config(baseParams);
+        config.setHasAccessToPreviewModel(true);
+
+        expect(config.getResolvedModelSync('pro', AuthType.USE_VERTEX_AI)).toBe(
+          PREVIEW_GEMINI_3_1_CUSTOM_TOOLS_MODEL,
+        );
+        await expect(
+          config.getResolvedModel('pro', AuthType.USE_VERTEX_AI),
+        ).resolves.toBe(PREVIEW_GEMINI_3_1_CUSTOM_TOOLS_MODEL);
+      });
+    });
+
     describe('getGemini31FlashLiteLaunchedSync', () => {
       it.each([AuthType.USE_GEMINI, AuthType.USE_VERTEX_AI, AuthType.GATEWAY])(
         'should return true for %s',
@@ -728,6 +832,14 @@ describe('Server Config (config.ts)', () => {
           expect(config.getGemini31FlashLiteLaunchedSync()).toBe(true);
         },
       );
+
+      it('should use an auth override before contentGeneratorConfig is assigned', () => {
+        const config = new Config(baseParams);
+
+        expect(config.getGemini31FlashLiteLaunchedSync(AuthType.GATEWAY)).toBe(
+          true,
+        );
+      });
     });
 
     describe('getProModelNoAccessSync', () => {

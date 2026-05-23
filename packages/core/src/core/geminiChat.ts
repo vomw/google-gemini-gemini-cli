@@ -721,6 +721,8 @@ export class GeminiChat {
         (await this.context.config.getGemini31Launched?.()) ?? false;
       const useGemini3_1FlashLite =
         (await this.context.config.getGemini31FlashLiteLaunched?.()) ?? false;
+      const useCustomToolModel =
+        (await this.context.config.getUseCustomToolModel?.()) ?? false;
       const hasAccessToPreview =
         this.context.config.getHasAccessToPreviewModel?.() ?? true;
 
@@ -729,7 +731,7 @@ export class GeminiChat {
         lastModelToUse,
         useGemini3_1,
         useGemini3_1FlashLite,
-        false,
+        useCustomToolModel,
         hasAccessToPreview,
         this.context.config,
       );
@@ -741,7 +743,7 @@ export class GeminiChat {
           this.context.config.getActiveModel(),
           useGemini3_1,
           useGemini3_1FlashLite,
-          false,
+          useCustomToolModel,
           hasAccessToPreview,
           this.context.config,
         );
@@ -804,7 +806,7 @@ export class GeminiChat {
             beforeModelResult.modifiedModel,
             useGemini3_1,
             useGemini3_1FlashLite,
-            false,
+            useCustomToolModel,
             hasAccessToPreview,
             this.context.config,
           );
