@@ -35,6 +35,7 @@ import {
   GEMMA_4_31B_IT_MODEL,
   GEMMA_4_26B_A4B_IT_MODEL,
   getAutoModelDescription,
+  type ModelCapabilityContext,
 } from './models.js';
 import type { Config } from './config.js';
 import { ModelConfigService } from '../services/modelConfigService.js';
@@ -326,6 +327,88 @@ describe('isGemini3Model', () => {
     expect(isGemini3Model(DEFAULT_GEMINI_MODEL_AUTO)).toBe(false);
   });
 
+  it('should correctly classify an exhaustive list of models as requested', () => {
+    // Expected true
+    expect(isGemini3Model('models/gemini-3.5-flash')).toBe(true);
+    expect(isGemini3Model('models/gemini-3.1-pro-preview')).toBe(true);
+    expect(isGemini3Model('models/gemini-3.1-flash-lite')).toBe(true);
+    expect(isGemini3Model('models/gemini-3.1-flash-lite-preview')).toBe(true);
+    expect(isGemini3Model('models/gemini-3-flash-preview')).toBe(true);
+
+    // Expected false
+    expect(isGemini3Model('models/gemini-2.5-pro')).toBe(false);
+    expect(isGemini3Model('models/gemini-2.5-flash')).toBe(false);
+    expect(isGemini3Model('models/gemini-2.5-flash-lite')).toBe(false);
+  });
+
+  it('should return true for Vertex AI model resource paths and handle false positives', () => {
+    expect(
+      isGemini3Model(
+        'projects/test/locations/us-central1/publishers/google/models/gemini-3.1-pro-preview',
+      ),
+    ).toBe(true);
+    expect(
+      isGemini3Model(
+        'projects/test/locations/us-central1/publishers/google/models/gemini-3-flash-preview',
+      ),
+    ).toBe(true);
+    expect(
+      isGemini3Model(
+        'projects/test/locations/us-central1/publishers/google/models/gemini-3.5-flash',
+      ),
+    ).toBe(true);
+    expect(
+      isGemini3Model(
+        'projects/gemini-3-project/locations/us-central1/publishers/google/models/gemini-2.5-pro',
+      ),
+    ).toBe(false);
+  });
+
+  it('should return true for Vertex AI model resource paths with dynamic configuration', () => {
+    // We use a mock config object directly as per the bot's suggestion
+    // to use hardcoded literals rather than imported constants for self-contained tests.
+    expect(
+      isGemini3Model(
+        'projects/test/locations/us-central1/publishers/google/models/gemini-3.1-pro-preview',
+        {
+          getExperimentalDynamicModelConfiguration: () => true,
+          modelConfigService: {
+            resolveModelId: (modelId: string) => modelId,
+            getModelDefinition: (modelId: string) => {
+              if (modelId === 'gemini-3.1-pro-preview') {
+                return { family: 'gemini-3' };
+              }
+              return undefined;
+            },
+          },
+        } as unknown as ModelCapabilityContext,
+      ),
+    ).toBe(true);
+  });
+
+  it('should handle Vertex AI model resource paths consistently across all functions', () => {
+    const vertexPath =
+      'projects/test/locations/us-central1/publishers/google/models/gemini-3.1-pro-preview';
+
+    expect(isPreviewModel(vertexPath)).toBe(true);
+    expect(isProModel(vertexPath)).toBe(true);
+    expect(isGemini3Model(vertexPath)).toBe(true);
+    expect(isGemini2Model(vertexPath)).toBe(false);
+    expect(isCustomModel(vertexPath)).toBe(false);
+    expect(isAutoModel(vertexPath)).toBe(false);
+
+    const vertexGemini2 =
+      'projects/test/locations/us-central1/publishers/google/models/gemini-2.5-flash';
+    expect(isGemini2Model(vertexGemini2)).toBe(true);
+    expect(isGemini3Model(vertexGemini2)).toBe(false);
+    expect(isCustomModel(vertexGemini2)).toBe(false);
+
+    const vertexCustom =
+      'projects/test/locations/us-central1/publishers/google/models/my-custom-model';
+    expect(isCustomModel(vertexCustom)).toBe(true);
+    expect(isGemini3Model(vertexCustom)).toBe(false);
+  });
+
   it('should return false for arbitrary strings', () => {
     expect(isGemini3Model('gpt-4')).toBe(false);
   });
@@ -377,8 +460,24 @@ describe('getDisplayString', () => {
 });
 
 describe('supportsMultimodalFunctionResponse', () => {
-  it('should return true for gemini-3 model', () => {
+  it('should return true for gemini-3 models', () => {
     expect(supportsMultimodalFunctionResponse('gemini-3-pro')).toBe(true);
+    expect(supportsMultimodalFunctionResponse('gemini-3.1-pro-preview')).toBe(
+      true,
+    );
+  });
+
+  it('should return true for aliases that resolve to Gemini 3', () => {
+    expect(supportsMultimodalFunctionResponse('auto')).toBe(true);
+    expect(supportsMultimodalFunctionResponse('pro')).toBe(true);
+  });
+
+  it('should return true for Vertex AI Gemini 3 resource paths', () => {
+    expect(
+      supportsMultimodalFunctionResponse(
+        'projects/test/locations/us-central1/publishers/google/models/gemini-3.1-pro-preview',
+      ),
+    ).toBe(true);
   });
 
   it('should return false for gemini-2 models', () => {
