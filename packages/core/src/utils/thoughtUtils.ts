@@ -18,6 +18,12 @@ const END_DELIMITER = '**';
  * that can sometimes appear in model thoughts even when the user's language
  * is English, causing display issues.
  *
+ * Note: This is an intentional trade-off. Stripping CJK characters may affect
+ * CJK-speaking users, but model thoughts are typically internal/auxiliary text
+ * shown alongside primary output, and CJK fragments in an otherwise English
+ * thought cause visual noise. Code snippets containing CJK are unaffected
+ * because they are not rendered via parseThought.
+ *
  * Matches the following Unicode ranges:
  * - U+3000–U+303F: CJK Symbols and Punctuation
  * - U+3400–U+4DBF: CJK Unified Ideographs Extension A
@@ -29,7 +35,7 @@ const END_DELIMITER = '**';
  * - U+FF00–U+FFEF: Halfwidth and Fullwidth Forms
  */
 const CJK_CHARS_REGEX =
-  /[\u3000-\u303F\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\uFF00-\uFFEF]/g;
+  /[\u3000-\u303F\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\uFF00-\uFFEF]/gu;
 
 /**
  * Parses a raw thought string into a structured ThoughtSummary object.
@@ -43,34 +49,28 @@ const CJK_CHARS_REGEX =
  * string is treated as the description.
  */
 export function parseThought(rawText: string): ThoughtSummary {
-  const startIndex = rawText.indexOf(START_DELIMITER);
+  const text = rawText.replace(CJK_CHARS_REGEX, '').trim();
+  const startIndex = text.indexOf(START_DELIMITER);
   if (startIndex === -1) {
-    // No start delimiter found, the whole text is the description.
-    return { subject: '', description: rawText.replace(CJK_CHARS_REGEX, '').trim() };
+    return { subject: '', description: text };
   }
 
-  const endIndex = rawText.indexOf(
+  const endIndex = text.indexOf(
     END_DELIMITER,
     startIndex + START_DELIMITER.length,
   );
   if (endIndex === -1) {
-    // Start delimiter found but no end delimiter, so it's not a valid subject.
-    // Treat the entire string as the description.
-    return { subject: '', description: rawText.replace(CJK_CHARS_REGEX, '').trim() };
+    return { subject: '', description: text };
   }
 
-  const subject = rawText
+  const subject = text
     .substring(startIndex + START_DELIMITER.length, endIndex)
-    .replace(CJK_CHARS_REGEX, '')
     .trim();
 
-  // The description is everything before the start delimiter and after the end delimiter.
   const description = (
-    rawText.substring(0, startIndex) +
-    rawText.substring(endIndex + END_DELIMITER.length)
-  )
-    .replace(CJK_CHARS_REGEX, '')
-    .trim();
+    text.substring(0, startIndex) +
+    text.substring(endIndex + END_DELIMITER.length)
+  ).trim();
 
   return { subject, description };
 }
