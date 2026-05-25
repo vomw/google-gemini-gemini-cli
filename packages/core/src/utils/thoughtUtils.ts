@@ -13,9 +13,9 @@ const START_DELIMITER = '**';
 const END_DELIMITER = '**';
 
 /**
- * Regex matching characters from CJK (Chinese, Japanese, Korean) scripts,
- * including punctuation and fullwidth forms. Uses Unicode Property Escapes
- * for robust coverage across all Unicode planes (including Plane 2+ extensions).
+ * Regex matching characters from CJK (Chinese, Japanese, Korean) scripts
+ * and CJK punctuation. Uses Unicode Property Escapes for robust coverage
+ * across all Unicode planes (including Plane 2+ extensions).
  *
  * Note: This is an intentional trade-off. Stripping CJK characters may affect
  * CJK-speaking users, but model thoughts are typically internal/auxiliary text
@@ -24,7 +24,7 @@ const END_DELIMITER = '**';
  * because they are not rendered via parseThought.
  */
 const CJK_CHARS_REGEX =
-  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u3000-\u303F\uFF00-\uFFEF]/gu;
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u3000-\u303F]/gu;
 
 /**
  * Parses a raw thought string into a structured ThoughtSummary object.
