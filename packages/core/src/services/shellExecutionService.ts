@@ -1097,6 +1097,10 @@ export class ShellExecutionService {
       return;
     }
 
+    // Clamp to sensible terminal dimensions to prevent DOS from unbounded values.
+    cols = Math.max(10, Math.min(cols, 512));
+    rows = Math.max(2, Math.min(rows, 256));
+
     const activePty = this.activePtys.get(pid);
     if (activePty) {
       try {
@@ -1117,7 +1121,7 @@ export class ShellExecutionService {
           throw e;
         }
       }
-      activePty.headlessTerminal.resize(Math.max(1, Math.min(cols, 4096)), Math.max(1, Math.min(rows, 4096)));
+      activePty.headlessTerminal.resize(cols, rows);
     }
 
     // Force emit the new state after resize
