@@ -539,7 +539,7 @@ describe('ShellExecutionService', () => {
       }).not.toThrow();
 
       expect(mockPtyProcess.resize).toHaveBeenCalledWith(100, 40);
-      expect(mockHeadlessTerminal.resize).not.toHaveBeenCalled();
+      expect(mockHeadlessTerminal.resize).toHaveBeenCalledWith(100, 40);
     });
 
     it('should not throw when resizing a pty with a stale fd (EBADF)', () => {
@@ -556,7 +556,7 @@ describe('ShellExecutionService', () => {
       }).not.toThrow();
 
       expect(mockPtyProcess.resize).toHaveBeenCalledWith(100, 40);
-      expect(mockHeadlessTerminal.resize).not.toHaveBeenCalled();
+      expect(mockHeadlessTerminal.resize).toHaveBeenCalledWith(100, 40);
     });
 
     it('should ignore ESRCH errors when resizing an exited pty (Unix)', () => {
@@ -573,7 +573,7 @@ describe('ShellExecutionService', () => {
       }).not.toThrow();
 
       expect(mockPtyProcess.resize).toHaveBeenCalledWith(100, 40);
-      expect(mockHeadlessTerminal.resize).not.toHaveBeenCalled();
+      expect(mockHeadlessTerminal.resize).toHaveBeenCalledWith(100, 40);
     });
   });
 

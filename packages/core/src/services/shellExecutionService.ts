@@ -1101,10 +1101,11 @@ export class ShellExecutionService {
     if (activePty) {
       try {
         activePty.ptyProcess.resize(cols, rows);
-        activePty.headlessTerminal.resize(cols, rows);
       } catch (e) {
-        // Ignore errors if the pty has already exited, which can happen
-        // due to a race condition between the exit event and this call.
+        // On Unix, the pty process may have already exited (ESRCH) or
+        // the fd may be stale (EBADF). On Windows, we get a message-
+        // based error. In all these cases, ignore the PTY error but
+        // still resize the headless terminal for correct UI rendering.
         const err = e as { code?: string; message?: string };
         const isEsrch = err.code === 'ESRCH';
         const isEbadf = err.code === 'EBADF';
@@ -1112,14 +1113,11 @@ export class ShellExecutionService {
           'Cannot resize a pty that has already exited',
         );
 
-        if (isEsrch || isEbadf || isWindowsPtyError) {
-          // On Unix, we get an ESRCH error.
-          // On Windows, we get a message-based error.
-          // In both cases, it's safe to ignore.
-        } else {
+        if (!isEsrch && !isEbadf && !isWindowsPtyError) {
           throw e;
         }
       }
+      activePty.headlessTerminal.resize(cols, rows);
     }
 
     // Force emit the new state after resize
