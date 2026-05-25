@@ -24,7 +24,7 @@ const END_DELIMITER = '**';
  * because they are not rendered via parseThought.
  */
 const CJK_CHARS_REGEX =
-  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u3000-\u303F]/gu;
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Bopomofo}\u3000-\u303F\uFF00-\uFFEF]/gu;
 
 /**
  * Parses a raw thought string into a structured ThoughtSummary object.
