@@ -1110,6 +1110,7 @@ export class ShellExecutionService {
         // the fd may be stale (EBADF). On Windows, we get a message-
         // based error. In all these cases, ignore the PTY error but
         // still resize the headless terminal for correct UI rendering.
+         
         const err = e as { code?: string; message?: string };
         const isEsrch = err.code === 'ESRCH';
         const isEbadf = err.code === 'EBADF';
