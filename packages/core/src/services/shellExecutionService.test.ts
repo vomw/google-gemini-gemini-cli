@@ -592,6 +592,40 @@ describe('ShellExecutionService', () => {
       expect(mockPtyProcess.resize).toHaveBeenCalledWith(100, 40);
       expect(mockHeadlessTerminal.resize).not.toHaveBeenCalled();
     });
+
+    it('should not throw when resizing a pty with a stale fd (EBADF)', () => {
+      const resizeError = new Error('ioctl(2) failed, EBADF') as Error & {
+        code?: string;
+      };
+      resizeError.code = 'EBADF';
+      mockPtyProcess.resize.mockImplementation(() => {
+        throw resizeError;
+      });
+
+      expect(() => {
+        ShellExecutionService.resizePty(mockPtyProcess.pid, 100, 40);
+      }).not.toThrow();
+
+      expect(mockPtyProcess.resize).toHaveBeenCalledWith(100, 40);
+      expect(mockHeadlessTerminal.resize).not.toHaveBeenCalled();
+    });
+
+    it('should ignore ESRCH errors when resizing an exited pty (Unix)', () => {
+      const resizeError = new Error('ESRCH error') as Error & {
+        code?: string;
+      };
+      resizeError.code = 'ESRCH';
+      mockPtyProcess.resize.mockImplementation(() => {
+        throw resizeError;
+      });
+
+      expect(() => {
+        ShellExecutionService.resizePty(mockPtyProcess.pid, 100, 40);
+      }).not.toThrow();
+
+      expect(mockPtyProcess.resize).toHaveBeenCalledWith(100, 40);
+      expect(mockHeadlessTerminal.resize).not.toHaveBeenCalled();
+    });
   });
 
   describe('Failed Execution', () => {
