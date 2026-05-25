@@ -1117,7 +1117,7 @@ export class ShellExecutionService {
           throw e;
         }
       }
-      activePty.headlessTerminal.resize(cols, rows);
+      activePty.headlessTerminal.resize(Math.max(1, Math.min(cols, 4096)), Math.max(1, Math.min(rows, 4096)));
     }
 
     // Force emit the new state after resize
