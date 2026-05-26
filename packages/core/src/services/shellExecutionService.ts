@@ -138,6 +138,7 @@ export interface ShellExecutionConfig {
   backgroundCompletionBehavior?: 'inject' | 'notify' | 'silent';
   originalCommand?: string;
   sessionId?: string;
+  projectEnvKeys?: ReadonlySet<string>;
 }
 
 /**
@@ -479,6 +480,12 @@ export class ShellExecutionService {
     };
 
     const sanitizedEnv = sanitizeEnvironment(process.env, sanitizationConfig);
+
+    // Remove variables that were injected from the project's .env file so they
+    // don't override subprocess-level configurations (e.g. phpunit.xml test DB).
+    for (const key of shellExecutionConfig.projectEnvKeys ?? []) {
+      delete sanitizedEnv[key];
+    }
 
     const baseEnv: Record<string, string | undefined> = {
       ...sanitizedEnv,
