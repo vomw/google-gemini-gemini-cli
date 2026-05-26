@@ -5,7 +5,7 @@
  */
 
 import { type ThoughtSummary } from '../utils/thoughtUtils.js';
-import { getProjectHash } from '../utils/paths.js';
+import { getProjectHash, resolveToRealPath, isSubpath } from '../utils/paths.js';
 import path from 'node:path';
 import * as fs from 'node:fs';
 import { sanitizeFilenamePart } from '../utils/fileUtils.js';
@@ -111,12 +111,24 @@ export async function loadConversationRecord(
     })
   | null
 > {
-  if (!fs.existsSync(filePath)) {
-    return null;
-  }
-
   try {
-    const fileStream = fs.createReadStream(filePath);
+    const realPath = resolveToRealPath(filePath);
+
+    if (options?.baseDir) {
+      const realBaseDir = resolveToRealPath(options.baseDir);
+      if (!isSubpath(realBaseDir, realPath)) {
+        debugLogger.warn(
+          `loadConversationRecord: blocked traversal attempt. ${realPath} is not within ${realBaseDir} (original baseDir: ${options.baseDir})`,
+        );
+        return null;
+      }
+    }
+
+    const stats = await fs.promises.stat(realPath);
+    if (!stats.isFile()) {
+      return null;
+    }
+    const fileStream = fs.createReadStream(realPath);
     const rl = readline.createInterface({
       input: fileStream,
       crlfDelay: Infinity,
@@ -309,7 +321,7 @@ export async function loadConversationRecord(
     }
 
     if (!metadata.sessionId || !metadata.projectHash) {
-      return await parseLegacyRecordFallback(filePath, options);
+      return await parseLegacyRecordFallback(realPath, options);
     }
 
     const loadedMessages = Array.from(messagesMap.values());
