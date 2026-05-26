@@ -312,7 +312,16 @@ export async function start_sandbox(
 
     // use interactive mode and auto-remove container on exit
     // run init binary inside container to forward signals & reap zombies
-    const args = ['run', '-i', '--rm', '--init', '--workdir', containerWorkdir];
+    const args = [
+      'run',
+      '-i',
+      '--rm',
+      '--init',
+      '--entrypoint',
+      '',
+      '--workdir',
+      containerWorkdir,
+    ];
 
     // explicitly clear the entrypoint to prevent the container's default
     // entrypoint from interfering with the CLI's spawn command.
