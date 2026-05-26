@@ -3233,6 +3233,60 @@ describe('Config Quota & Preview Model Access', () => {
       expect((pooled?.remaining ?? 0) / (pooled?.limit ?? 1)).toBeCloseTo(0.6);
     });
 
+    it('should not overwrite quota with a zero bucket if a non-zero bucket exists for the same model', async () => {
+      mockCodeAssistServer.retrieveUserQuota.mockResolvedValue({
+        buckets: [
+          {
+            modelId: 'gemini-1.5-pro',
+            remainingAmount: '100',
+            remainingFraction: 1.0,
+          },
+          {
+            modelId: 'gemini-1.5-pro',
+            remainingAmount: '0',
+            remainingFraction: 0.0,
+          },
+        ],
+      });
+
+      config.setModel('gemini-1.5-pro');
+      await config.refreshUserQuota();
+
+      // If it overwrites, it will be 0. We want it to be 100.
+      expect(config.getQuotaRemaining()).toBe(100);
+    });
+
+    it('should update cache to a lower value from a new response', async () => {
+      // First response sets quota to 150
+      mockCodeAssistServer.retrieveUserQuota.mockResolvedValueOnce({
+        buckets: [
+          {
+            modelId: 'gemini-1.5-pro',
+            remainingAmount: '150',
+            remainingFraction: 1.0,
+          },
+        ],
+      });
+      config.setModel('gemini-1.5-pro');
+      await config.refreshUserQuota();
+      expect(config.getQuotaRemaining()).toBe(150);
+
+      // Second response sets quota to 100
+      mockCodeAssistServer.retrieveUserQuota.mockResolvedValueOnce({
+        buckets: [
+          {
+            modelId: 'gemini-1.5-pro',
+            remainingAmount: '100',
+            remainingFraction: 0.66,
+          },
+        ],
+      });
+      await config.refreshUserQuota();
+
+      // If cache isn't properly overwritten by a valid lower value, it would remain 150.
+      expect(config.getQuotaRemaining()).toBe(100);
+    });
+
     it('should return undefined pooled quota for non-auto models', async () => {
       mockCodeAssistServer.retrieveUserQuota.mockResolvedValue({
         buckets: [
