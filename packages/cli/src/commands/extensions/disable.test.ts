@@ -22,7 +22,7 @@ import {
   SettingScope,
   type LoadedSettings,
 } from '../../config/settings.js';
-import { getErrorMessage } from '@google/gemini-cli-core';
+import { FatalConfigError, getErrorMessage } from '@google/gemini-cli-core';
 
 // Mock dependencies
 const emitConsoleLog = vi.hoisted(() => vi.fn());
@@ -45,6 +45,12 @@ vi.mock('@google/gemini-cli-core', async (importOriginal) => {
     },
     debugLogger,
     getErrorMessage: vi.fn(),
+    FatalConfigError: class extends Error {
+      constructor(message: string) {
+        super(message);
+        this.name = 'FatalConfigError';
+      }
+    },
   };
 });
 
@@ -88,8 +94,9 @@ describe('extensions disable command', () => {
         name: 'my-extension',
         scope: undefined,
         expectedScope: SettingScope.User,
+        // scope falls back to SettingScope.User when not provided
         expectedLog:
-          'Extension "my-extension" successfully disabled for scope "undefined".',
+          'Extension "my-extension" successfully disabled for scope "User".',
       },
       {
         name: 'my-extension',
@@ -126,24 +133,17 @@ describe('extensions disable command', () => {
       },
     );
 
-    it('should log an error message and exit with code 1 when extension disabling fails', async () => {
-      const mockProcessExit = vi
-        .spyOn(process, 'exit')
-        .mockImplementation((() => {}) as (
-          code?: string | number | null | undefined,
-        ) => never);
+    it('should throw FatalConfigError when extension disabling fails', async () => {
+      const mockCwd = vi.spyOn(process, 'cwd').mockReturnValue('/test/dir');
       const error = new Error('Disable failed');
       (
         mockExtensionManager.prototype.disableExtension as Mock
       ).mockRejectedValue(error);
       mockGetErrorMessage.mockReturnValue('Disable failed message');
-      await handleDisable({ name: 'my-extension' });
-      expect(emitConsoleLog).toHaveBeenCalledWith(
-        'error',
-        'Disable failed message',
-      );
-      expect(mockProcessExit).toHaveBeenCalledWith(1);
-      mockProcessExit.mockRestore();
+      const promise = handleDisable({ name: 'my-extension' });
+      await expect(promise).rejects.toThrow(FatalConfigError);
+      await expect(promise).rejects.toThrow('Disable failed message');
+      mockCwd.mockRestore();
     });
   });
 
