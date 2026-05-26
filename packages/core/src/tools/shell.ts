@@ -1040,7 +1040,7 @@ export class ShellToolInvocation extends BaseToolInvocation<
       return {
         llmContent,
         display: {
-          name: 'Shell',
+          name: this._toolDisplayName,
           description: this.getDescription(),
           resultSummary: displayResultSummary,
           result:
