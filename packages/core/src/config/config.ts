@@ -5,6 +5,7 @@
  */
 
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { SandboxPolicyManager } from '../policy/sandboxPolicyManager.js';
 import { inspect } from 'node:util';
@@ -632,6 +633,7 @@ export interface ConfigParameters {
     customIgnoreFilePaths?: string[];
   };
   checkpointing?: boolean;
+  ephemeral?: boolean;
   proxy?: string;
   cwd: string;
   fileDiscoveryService?: FileDiscoveryService;
@@ -822,6 +824,7 @@ export class Config implements McpContext, AgentLoopContext {
   private fileDiscoveryService: FileDiscoveryService | null = null;
   private gitService: GitService | undefined = undefined;
   private readonly checkpointing: boolean;
+  private readonly ephemeral: boolean;
   private readonly proxy: string | undefined;
   private readonly cwd: string;
   private readonly bugCommand: BugCommandSettings | undefined;
@@ -1116,6 +1119,7 @@ export class Config implements McpContext, AgentLoopContext {
       customIgnoreFilePaths: params.fileFiltering?.customIgnoreFilePaths ?? [],
     };
     this.checkpointing = params.checkpointing ?? false;
+    this.ephemeral = params.ephemeral ?? false;
     this.proxy = params.proxy;
     this.cwd = params.cwd ?? process.cwd();
     this.fileDiscoveryService = params.fileDiscoveryService ?? null;
@@ -1302,6 +1306,19 @@ export class Config implements McpContext, AgentLoopContext {
     this.extensionRegistryURI = params.extensionRegistryURI;
     this.enableExtensionReloading = params.enableExtensionReloading ?? false;
     this.storage = new Storage(this.targetDir, this._sessionId);
+    if (this.ephemeral) {
+      const ephemeralRoot = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'gemini-cli-ephemeral-'),
+      );
+      this.storage.setEphemeralTempDir(ephemeralRoot);
+      process.on('exit', () => {
+        try {
+          fs.rmSync(ephemeralRoot, { recursive: true, force: true });
+        } catch {
+          // Best-effort cleanup during process exit.
+        }
+      });
+    }
     this.storage.setCustomPlansDir(params.planSettings?.directory);
 
     this.fakeResponses = params.fakeResponses;
@@ -2985,6 +3002,10 @@ export class Config implements McpContext, AgentLoopContext {
 
   getCheckpointingEnabled(): boolean {
     return this.checkpointing;
+  }
+
+  isEphemeralMode(): boolean {
+    return this.ephemeral;
   }
 
   getProxy(): string | undefined {

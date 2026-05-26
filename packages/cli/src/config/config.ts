@@ -108,6 +108,7 @@ export interface CliArgs {
   startupMessages?: string[];
   rawOutput: boolean | undefined;
   acceptRawOutputRisk: boolean | undefined;
+  ephemeral?: boolean | undefined;
   skipTrust: boolean | undefined;
   isCommand: boolean | undefined;
 }
@@ -246,6 +247,10 @@ export async function parseArguments(
 
       if (sessionFlags > 1) {
         return 'The flags --resume, --session-id, and --session-file are mutually exclusive. Please provide only one.';
+      }
+
+      if (argv['ephemeral'] && sessionFlags > 0) {
+        return '--ephemeral cannot be combined with --resume, --session-id, or --session-file. Ephemeral runs are not persisted, so there is nothing to resume.';
       }
 
       if (argv['prompt'] && hasPositionalQuery) {
@@ -396,6 +401,12 @@ export async function parseArguments(
           alias: 'l',
           type: 'boolean',
           description: 'List all available extensions and exit.',
+        })
+        .option('ephemeral', {
+          type: 'boolean',
+          description:
+            'Redirect per-run writes (chat history, checkpoints, tool outputs, RAG logs, shell history) out of the user home for the current process.',
+          default: false,
         })
         .option('resume', {
           alias: 'r',
@@ -1012,7 +1023,10 @@ export async function loadCliConfig(
     telemetry: telemetrySettings,
     usageStatisticsEnabled: settings.privacy?.usageStatisticsEnabled,
     fileFiltering,
-    checkpointing: settings.general?.checkpointing?.enabled,
+    checkpointing: argv.ephemeral
+      ? false
+      : settings.general?.checkpointing?.enabled,
+    ephemeral: argv.ephemeral,
     proxy:
       process.env['HTTPS_PROXY'] ||
       process.env['https_proxy'] ||
