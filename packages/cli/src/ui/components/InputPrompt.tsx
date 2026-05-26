@@ -56,6 +56,7 @@ import {
   coreEvents,
   debugLogger,
   type Config,
+  escapePath,
 } from '@google/gemini-cli-core';
 import { useVoiceMode } from '../hooks/useVoiceMode.js';
 import {
@@ -257,6 +258,12 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
     shortcutsHelpVisible,
     isVoiceModeEnabled,
   } = useUIState();
+
+  const bufferRef = useRef(buffer);
+  useEffect(() => {
+    bufferRef.current = buffer;
+  }, [buffer]);
+
   const [suppressCompletion, setSuppressCompletion] = useState(false);
   const { handlePress: registerPlainTabPress, resetCount: resetPlainTabPress } =
     useRepeatedKeyPress({
@@ -531,44 +538,74 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
     return false;
   }, [buffer, popAllMessages, inputHistory]);
 
+  const handleImagePaste = useCallback(
+    async (pasteOffset: number): Promise<boolean> => {
+      try {
+        if (await clipboardHasImage()) {
+          const imagePath = await saveClipboardImage(config.getTargetDir());
+          if (imagePath) {
+            // Clean up old images
+            cleanupOldClipboardImages(config.getTargetDir()).catch(() => {
+              // Ignore cleanup errors
+            });
+
+            // Get relative path from current directory
+            const relativePath = path.relative(
+              config.getTargetDir(),
+              imagePath,
+            );
+
+            // Insert @path reference at cursor position
+            const escapedPath = escapePath(relativePath);
+            const insertText = `@${escapedPath}`;
+            const currentBuffer = bufferRef.current;
+            const currentText = currentBuffer.text;
+
+            // Add spaces around the path if needed
+            let textToInsert = insertText;
+            const charBefore =
+              pasteOffset > 0 ? currentText[pasteOffset - 1] : '';
+            const charAfter =
+              pasteOffset < currentText.length ? currentText[pasteOffset] : '';
+
+            if (charBefore && charBefore !== ' ' && charBefore !== '\n') {
+              textToInsert = ' ' + textToInsert;
+            }
+            if (!charAfter || (charAfter !== ' ' && charAfter !== '\n')) {
+              textToInsert = textToInsert + ' ';
+            }
+
+            // Insert at synchronously captured cursor position
+            currentBuffer.replaceRangeByOffset(
+              pasteOffset,
+              pasteOffset,
+              textToInsert,
+            );
+            return true;
+          }
+        }
+      } catch (error) {
+        debugLogger.error(
+          'Error checking clipboard for image during paste:',
+          error,
+        );
+      }
+      return false;
+    },
+    [config],
+  );
+
   // Handle clipboard image pasting with Ctrl+V
   const handleClipboardPaste = useCallback(async () => {
     if (shortcutsHelpVisible) {
       setShortcutsHelpVisible(false);
     }
+    // Capture cursor offset synchronously to avoid race conditions with async operations
+    const pasteOffset = bufferRef.current.getOffset();
+
     try {
-      if (await clipboardHasImage()) {
-        const imagePath = await saveClipboardImage(config.getTargetDir());
-        if (imagePath) {
-          // Clean up old images
-          cleanupOldClipboardImages(config.getTargetDir()).catch(() => {
-            // Ignore cleanup errors
-          });
-
-          // Get relative path from current directory
-          const relativePath = path.relative(config.getTargetDir(), imagePath);
-
-          // Insert @path reference at cursor position
-          const insertText = `@${relativePath}`;
-          const currentText = buffer.text;
-          const offset = buffer.getOffset();
-
-          // Add spaces around the path if needed
-          let textToInsert = insertText;
-          const charBefore = offset > 0 ? currentText[offset - 1] : '';
-          const charAfter =
-            offset < currentText.length ? currentText[offset] : '';
-
-          if (charBefore && charBefore !== ' ' && charBefore !== '\n') {
-            textToInsert = ' ' + textToInsert;
-          }
-          if (!charAfter || (charAfter !== ' ' && charAfter !== '\n')) {
-            textToInsert = textToInsert + ' ';
-          }
-
-          // Insert at cursor position
-          buffer.replaceRangeByOffset(offset, offset, textToInsert);
-        }
+      if (await handleImagePaste(pasteOffset)) {
+        return;
       }
 
       if (settings.experimental?.useOSC52Paste) {
@@ -578,7 +615,7 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
         const escapedText = settings.ui?.escapePastedAtSymbols
           ? escapeAtSymbols(textToInsert)
           : textToInsert;
-        buffer.insert(escapedText, { paste: true });
+        bufferRef.current.insert(escapedText, { paste: true });
 
         if (isLargePaste(textToInsert)) {
           appEvents.emit(AppEvent.TransientMessage, {
@@ -591,12 +628,11 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
       debugLogger.error('Error handling paste:', error);
     }
   }, [
-    buffer,
-    config,
-    stdout,
     settings,
     shortcutsHelpVisible,
     setShortcutsHelpVisible,
+    stdout,
+    handleImagePaste,
   ]);
 
   useMouseClick(
@@ -818,6 +854,18 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
         if (shortcutsHelpVisible) {
           setShortcutsHelpVisible(false);
         }
+
+        // Capture the logical position synchronously before the async operation
+        const initialOffset = buffer.getOffset();
+
+        // When the terminal intercepts Ctrl+V and sends a bracketed paste
+        // event, we also need to check for clipboard images. This is
+        // especially important on Windows Terminal where Ctrl+V is always
+        // converted to a bracketed paste, bypassing the PASTE_CLIPBOARD
+        // command handler that normally detects images.
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
+        handleImagePaste(initialOffset);
+
         // Record paste time to prevent accidental auto-submission
         if (!isTerminalPasteTrusted(kittyProtocol.enabled)) {
           setRecentUnsafePasteTime(Date.now());
@@ -1369,6 +1417,7 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
       return handled;
     },
     [
+      handleImagePaste,
       focus,
       buffer,
       completion,

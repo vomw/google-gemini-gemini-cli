@@ -923,6 +923,12 @@ export function getTransformedImagePath(filePath: string): string {
 
   const extension = path.extname(fileName);
   const baseName = path.basename(fileName, extension);
+
+  if (baseName.startsWith('clipboard-')) {
+    const id = baseName.replace('clipboard-', '');
+    return `[📸 Pasted Image #${id}]`;
+  }
+
   const maxBaseLength = 10;
 
   const truncatedBase =
