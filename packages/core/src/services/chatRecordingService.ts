@@ -510,8 +510,35 @@ export class ChatRecordingService {
   private appendRecord(record: unknown): void {
     if (!this.conversationFile) return;
     try {
-      const line = JSON.stringify(record) + '\n';
       fs.mkdirSync(path.dirname(this.conversationFile), { recursive: true });
+      // If the conversation file was removed mid-session (e.g. by an external
+      // cleanup or a manual deletion) the appendFileSync() below would recreate
+      // it containing only this record and no metadata line, leaving a "zombie"
+      // file that loadConversationRecord() can never parse. Re-seed it from the
+      // in-memory record first so the file stays a valid, resumable session.
+      // The initial metadata line written during initialize() is itself a
+      // metadata record, so it is skipped here to avoid duplicating the header.
+      let reSeeded = false;
+      if (
+        this.cachedConversation &&
+        !isPartialMetadataRecord(record) &&
+        !fs.existsSync(this.conversationFile)
+      ) {
+        fs.appendFileSync(
+          this.conversationFile,
+          JSON.stringify(this.cachedConversation) + '\n',
+        );
+        reSeeded = true;
+      }
+      // A re-seeded snapshot already reflects the current in-memory state,
+      // including any rewind that was just applied to cachedConversation. A
+      // $rewindTo record is a destructive delta whose target message no longer
+      // exists in that snapshot, so replaying it on load would clear the entire
+      // history. Skip it when we just re-seeded the file.
+      if (reSeeded && isRewindRecord(record)) {
+        return;
+      }
+      const line = JSON.stringify(record) + '\n';
       fs.appendFileSync(this.conversationFile, line);
     } catch (error) {
       if (isNodeError(error) && error.code === 'ENOSPC') {
