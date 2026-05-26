@@ -122,7 +122,8 @@ export class CheckerRunner {
     checkerConfig: ExternalCheckerConfig,
   ): Promise<SafetyCheckResult> {
     try {
-      // Resolve the checker executable path
+      // Always resolve the checker through the registry to ensure
+      // only trusted, pre-registered checkers can be executed.
       const checkerPath = this.registry.resolveExternal(checkerConfig.name);
 
       // Build the appropriate context

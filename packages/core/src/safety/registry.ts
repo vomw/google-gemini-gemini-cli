@@ -12,6 +12,16 @@ import { InProcessCheckerType } from '../policy/types.js';
 import { ConsecaSafetyChecker } from './conseca/conseca.js';
 
 /**
+ * Default trusted directories for custom safety checkers.
+ * Paths outside these directories require explicit user approval.
+ */
+const DEFAULT_TRUSTED_CHECKER_DIRECTORIES = [
+  '/usr/local/bin',
+  '/usr/bin',
+  '/opt/gemini-cli/checkers',
+];
+
+/**
  * Registry for managing safety checker resolution.
  */
 export class CheckerRegistry {
@@ -39,7 +49,53 @@ export class CheckerRegistry {
   // Regex to validate checker names (alphanumeric and hyphens only)
   private static readonly VALID_NAME_PATTERN = /^[a-z0-9-]+$/;
 
-  constructor(private readonly checkersPath: string) {}
+  private readonly customCheckers: Map<string, string>;
+  private readonly trustedCheckerDirectories: string[];
+  private readonly approvedUntrustedCheckers: Set<string>;
+
+  constructor(
+    private readonly checkersPath: string,
+    customCheckers?: Map<string, string>,
+    trustedCheckerDirectories?: string[],
+    approvedUntrustedCheckers?: Set<string>,
+  ) {
+    this.customCheckers = customCheckers ?? new Map<string, string>();
+    this.trustedCheckerDirectories =
+      trustedCheckerDirectories ?? DEFAULT_TRUSTED_CHECKER_DIRECTORIES;
+    this.approvedUntrustedCheckers =
+      approvedUntrustedCheckers ?? new Set<string>();
+    this.validateCustomCheckerPaths();
+  }
+
+  private validateCustomCheckerPaths(): void {
+    for (const [name, checkerPath] of this.customCheckers) {
+      if (!path.isAbsolute(checkerPath)) {
+        throw new Error(
+          `Custom checker "${name}" path must be absolute: ${checkerPath}`,
+        );
+      }
+      if (checkerPath.includes('..')) {
+        throw new Error(
+          `Custom checker "${name}" path must not contain '..': ${checkerPath}`,
+        );
+      }
+      if (!fs.existsSync(checkerPath)) {
+        throw new Error(`Custom checker "${name}" not found at ${checkerPath}`);
+      }
+
+      // Check if path is within a trusted directory or explicitly approved
+      const isInTrustedDir = this.trustedCheckerDirectories.some((dir) =>
+        checkerPath.startsWith(dir + path.sep),
+      );
+
+      if (!isInTrustedDir && !this.approvedUntrustedCheckers.has(name)) {
+        throw new Error(
+          `Custom checker "${name}" at ${checkerPath} is outside trusted directories. ` +
+            `Add to approved list or place in one of: ${this.trustedCheckerDirectories.join(', ')}`,
+        );
+      }
+    }
+  }
 
   /**
    * Resolves an external checker name to an absolute executable path.
@@ -51,17 +107,46 @@ export class CheckerRegistry {
       );
     }
 
+    // Check built-in external checkers first
     const builtInPath = CheckerRegistry.BUILT_IN_EXTERNAL_CHECKERS.get(name);
     if (builtInPath) {
       const fullPath = path.join(this.checkersPath, builtInPath);
       if (!fs.existsSync(fullPath)) {
         throw new Error(`Built-in checker "${name}" not found at ${fullPath}`);
       }
-      return fullPath;
+      // Resolve symlinks to prevent symlink substitution attacks
+      return fs.realpathSync(fullPath);
     }
 
-    // TODO: Phase 5 - Add support for custom external checkers
-    throw new Error(`Unknown external checker "${name}".`);
+    // Check custom external checkers
+    // Note: Paths are validated during registration in validateCustomCheckerPaths().
+    // We perform additional runtime checks here for defense-in-depth.
+    const customPath = this.customCheckers.get(name);
+    if (customPath) {
+      // Ensure path is still absolute and doesn't contain traversal sequences
+      if (!path.isAbsolute(customPath) || customPath.includes('..')) {
+        throw new Error(
+          `Custom checker "${name}" has an invalid or untrusted path: ${customPath}`,
+        );
+      }
+      // Resolve symlinks to prevent symlink substitution attacks
+      const resolvedPath = fs.realpathSync(customPath);
+      return resolvedPath;
+    }
+
+    throw new Error(
+      `Unknown external checker "${name}". Available: ${this.getAllExternalCheckerNames().join(', ')}`,
+    );
+  }
+
+  /**
+   * Returns all available external checker names (built-in + custom).
+   */
+  getAllExternalCheckerNames(): string[] {
+    return [
+      ...Array.from(CheckerRegistry.BUILT_IN_EXTERNAL_CHECKERS.keys()),
+      ...Array.from(this.customCheckers.keys()),
+    ];
   }
 
   /**
@@ -92,6 +177,16 @@ export class CheckerRegistry {
     return [
       ...Array.from(this.BUILT_IN_EXTERNAL_CHECKERS.keys()),
       ...Array.from(this.getBuiltInInProcessCheckers().keys()),
+    ];
+  }
+
+  /**
+   * Returns all available checker names (built-in + custom).
+   */
+  getAllCheckers(): string[] {
+    return [
+      ...this.getAllExternalCheckerNames(),
+      ...Array.from(CheckerRegistry.getBuiltInInProcessCheckers().keys()),
     ];
   }
 }

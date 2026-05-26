@@ -739,6 +739,23 @@ export interface ConfigParameters {
     agents?: AgentSettings;
   }>;
   enableConseca?: boolean;
+  /**
+   * Custom safety checker executables mapped by name.
+   * Keys are checker names (lowercase alphanumeric with hyphens),
+   * values are absolute paths to the checker executables.
+   */
+  customSafetyCheckers?: Map<string, string>;
+  /**
+   * List of trusted directories for custom safety checkers.
+   * Checkers outside these directories require explicit approval.
+   * Defaults to system-wide trusted locations.
+   */
+  trustedCheckerDirectories?: string[];
+  /**
+   * Set of custom checker names that have been explicitly approved
+   * by the user, even if they are outside trusted directories.
+   */
+  approvedUntrustedCheckers?: Set<string>;
   billing?: {
     overageStrategy?: OverageStrategy;
   };
@@ -780,6 +797,9 @@ export class Config implements McpContext, AgentLoopContext {
   private readonly question: string | undefined;
   private readonly worktreeSettings: WorktreeSettings | undefined;
   readonly enableConseca: boolean;
+  private readonly customSafetyCheckers: Map<string, string>;
+  private readonly trustedCheckerDirectories: string[];
+  private readonly approvedUntrustedCheckers: Set<string>;
 
   private readonly coreTools: string[] | undefined;
   private readonly mainAgentTools: string[] | undefined;
@@ -1310,12 +1330,21 @@ export class Config implements McpContext, AgentLoopContext {
     this.fileExclusions = new FileExclusions(this);
     this.eventEmitter = params.eventEmitter;
     this.enableConseca = params.enableConseca ?? false;
+    this.customSafetyCheckers =
+      params.customSafetyCheckers ?? new Map<string, string>();
+    this.trustedCheckerDirectories = params.trustedCheckerDirectories ?? [];
+    this.approvedUntrustedCheckers =
+      params.approvedUntrustedCheckers ?? new Set<string>();
 
     // Initialize Safety Infrastructure
     const contextBuilder = new ContextBuilder(this);
     const checkersPath = this.targetDir;
-    // The checkersPath  is used to resolve external checkers. Since we do not have any external checkers currently, it is set to the targetDir.
-    const checkerRegistry = new CheckerRegistry(checkersPath);
+    const checkerRegistry = new CheckerRegistry(
+      checkersPath,
+      this.customSafetyCheckers,
+      this.trustedCheckerDirectories,
+      this.approvedUntrustedCheckers,
+    );
     const checkerRunner = new CheckerRunner(contextBuilder, checkerRegistry, {
       checkersPath,
       timeout: 30000, // 30 seconds to allow for LLM-based checkers
@@ -3069,6 +3098,10 @@ export class Config implements McpContext, AgentLoopContext {
 
   getDisableLLMCorrection(): boolean {
     return this.disableLLMCorrection;
+  }
+
+  getCustomSafetyCheckers(): Map<string, string> {
+    return this.customSafetyCheckers;
   }
 
   isPlanEnabled(): boolean {
