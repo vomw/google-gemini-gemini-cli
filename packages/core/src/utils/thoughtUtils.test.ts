@@ -8,6 +8,38 @@ import { describe, it, expect } from 'vitest';
 import { parseThought } from './thoughtUtils.js';
 
 describe('parseThought', () => {
+  it('should strip CJK characters from subject', () => {
+    const result = parseThought(
+      '**Fixing Worker Environment Variable Inheritance控制** description',
+    );
+    expect(result.subject).toBe(
+      'Fixing Worker Environment Variable Inheritance',
+    );
+    expect(result.description).toBe('description');
+  });
+
+  it('should strip CJK characters from description', () => {
+    const result = parseThought(
+      '**Subject** Fixing Worker Environment Variable Inheritance控制',
+    );
+    expect(result.subject).toBe('Subject');
+    expect(result.description).toBe(
+      'Fixing Worker Environment Variable Inheritance',
+    );
+  });
+
+  it('should strip CJK characters when no subject delimiter exists', () => {
+    const result = parseThought('Some text with控制 characters');
+    expect(result.subject).toBe('');
+    expect(result.description).toBe('Some text with characters');
+  });
+
+  it('should preserve Latin-accented characters', () => {
+    const result = parseThought('**Café** déjà vu ñoño');
+    expect(result.subject).toBe('Café');
+    expect(result.description).toBe('déjà vu ñoño');
+  });
+
   it.each([
     {
       name: 'a standard thought with subject and description',
