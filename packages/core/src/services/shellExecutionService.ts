@@ -46,6 +46,10 @@ import {
 const { Terminal } = pkg;
 
 const MAX_CHILD_PROCESS_BUFFER_SIZE = 16 * 1024 * 1024; // 16MB
+const MAX_PTY_CHUNK_SIZE = 1024 * 1024; // 1MB clamping for native bridge stability
+
+const TERM_DUMB = 'dumb';
+const TERM_DEFAULT = 'xterm-256color';
 
 /**
  * An environment variable that is set for shell executions. This can be used
@@ -126,6 +130,7 @@ export interface ShellExecutionConfig {
   terminalHeight?: number;
   pager?: string;
   showColor?: boolean;
+  enableInteractiveShell?: boolean;
   defaultFg?: string;
   defaultBg?: string;
   sanitizationConfig: EnvironmentSanitizationConfig;
@@ -383,7 +388,7 @@ export class ShellExecutionService {
       onOutputEvent,
       abortSignal,
       shellExecutionConfig,
-      shouldUseNodePty,
+      shouldUseNodePty && shellExecutionConfig.enableInteractiveShell !== false,
     );
   }
 
@@ -484,9 +489,9 @@ export class ShellExecutionService {
       ...sanitizedEnv,
       [GEMINI_CLI_IDENTIFICATION_ENV_VAR]:
         GEMINI_CLI_IDENTIFICATION_ENV_VAR_VALUE,
-      TERM: 'xterm-256color',
-      PAGER: shellExecutionConfig.pager ?? 'cat',
-      GIT_PAGER: shellExecutionConfig.pager ?? 'cat',
+      TERM: isInteractive ? TERM_DEFAULT : TERM_DUMB,
+      PAGER: isInteractive ? (shellExecutionConfig.pager ?? 'cat') : 'cat',
+      GIT_PAGER: isInteractive ? (shellExecutionConfig.pager ?? 'cat') : 'cat',
     };
 
     if (!isInteractive) {
@@ -494,7 +499,6 @@ export class ShellExecutionService {
       for (const key of gitConfigKeys) {
         baseEnv[key] = process.env[key];
       }
-
       const gitConfigCount = parseInt(baseEnv['GIT_CONFIG_COUNT'] || '0', 10);
       const newKey = `GIT_CONFIG_KEY_${gitConfigCount}`;
       const newValue = `GIT_CONFIG_VALUE_${gitConfigCount}`;
@@ -586,6 +590,7 @@ export class ShellExecutionService {
         env: finalEnv,
       });
 
+      const outputChunks: Buffer[] = [];
       const state = {
         output: '',
         truncated: false,
@@ -659,16 +664,17 @@ export class ShellExecutionService {
       const MAX_SNIFF_SIZE = 4096;
       let sniffedBytes = 0;
 
-      const handleOutput = (data: Buffer, stream: 'stdout' | 'stderr') => {
+      const handleOutputChunk = (chunk: Buffer, stream: 'stdout' | 'stderr') => {
+        outputChunks.push(chunk);
         if (!stdoutDecoder || !stderrDecoder) {
           stdoutDecoder = new TextDecoder('utf-8');
           stderrDecoder = new TextDecoder('utf-8');
         }
 
         if (isStreamingRawContent && sniffedBytes < MAX_SNIFF_SIZE) {
-          state.sniffChunks.push(data);
+          state.sniffChunks.push(chunk);
         } else if (!isStreamingRawContent) {
-          state.binaryBytesReceived += data.length;
+          state.binaryBytesReceived += chunk.length;
         }
 
         if (isStreamingRawContent && sniffedBytes < MAX_SNIFF_SIZE) {
@@ -688,7 +694,7 @@ export class ShellExecutionService {
 
         if (isStreamingRawContent) {
           const decoder = stream === 'stdout' ? stdoutDecoder : stderrDecoder;
-          const decodedChunk = decoder.decode(data, { stream: true });
+          const decodedChunk = decoder.decode(chunk, { stream: true });
 
           const { newBuffer, truncated } = this.appendAndTruncate(
             state.output,
@@ -729,6 +735,14 @@ export class ShellExecutionService {
         }
       };
 
+      const handleOutput = (data: Buffer, stream: 'stdout' | 'stderr') => {
+        // Process in chunks to ensure stability without discarding data
+        for (let i = 0; i < data.length; i += MAX_PTY_CHUNK_SIZE) {
+          const chunk = data.slice(i, i + MAX_PTY_CHUNK_SIZE);
+          handleOutputChunk(chunk, stream);
+        }
+      };
+
       const handleExit = (
         code: number | null,
         signal: NodeJS.Signals | null,
@@ -752,7 +766,7 @@ export class ShellExecutionService {
             : null;
 
         const resultPayload: ShellExecutionResult = {
-          rawOutput: Buffer.from(''),
+          rawOutput: Buffer.concat(outputChunks),
           output: finalStrippedOutput,
           exitCode,
           signal: exitSignal,
@@ -930,11 +944,12 @@ export class ShellExecutionService {
       const cols = shellExecutionConfig.terminalWidth ?? 80;
       const rows = shellExecutionConfig.terminalHeight ?? 30;
 
+      const isInteractive = shellExecutionConfig.enableInteractiveShell !== false;
       const prepared = await this.prepareExecution(
         commandToExecute,
         cwd,
         shellExecutionConfig,
-        true,
+        isInteractive,
         true,
       );
       cmdCleanup = prepared.cleanup;
@@ -950,7 +965,7 @@ export class ShellExecutionService {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const ptyProcess = ptyInfo.module.spawn(finalExecutable, finalArgs, {
         cwd: finalCwd,
-        name: 'xterm-256color',
+        name: isInteractive ? TERM_DEFAULT : TERM_DUMB,
         cols,
         rows,
         env: finalEnv,
@@ -964,11 +979,13 @@ export class ShellExecutionService {
         // has known incompatibilities with interactive Node.js TUI applications
         // that rely on VT-sequence-based arrow-key navigation.
         ...(isWindowsPlatform ? { useConpty: true } : {}),
+        encoding: null,
       });
 
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       spawnedPty = ptyProcess as DestroyablePty;
       const ptyPid = Number(ptyProcess.pid);
+      const outputChunks: Buffer[] = [];
 
       const headlessTerminal = new Terminal({
         allowProposedApi: true,
@@ -1164,6 +1181,7 @@ export class ShellExecutionService {
       });
 
       const handleOutput = (data: Buffer) => {
+        outputChunks.push(data);
         processingChain = processingChain.then(
           () =>
             new Promise<void>((resolveChunk) => {
@@ -1221,9 +1239,12 @@ export class ShellExecutionService {
         );
       };
 
-      ptyProcess.onData((data: string) => {
-        const bufferData = Buffer.from(data, 'utf-8');
-        handleOutput(bufferData);
+      ptyProcess.onData((data: Buffer | Uint8Array) => {
+        // Process in chunks to ensure native bridge stability without discarding data
+        for (let i = 0; i < data.length; i += MAX_PTY_CHUNK_SIZE) {
+          const chunk = data.slice(i, i + MAX_PTY_CHUNK_SIZE);
+          handleOutput(Buffer.from(chunk));
+        }
       });
 
       ptyProcess.onExit(
@@ -1284,7 +1305,7 @@ export class ShellExecutionService {
             });
 
             ExecutionLifecycleService.completeWithResult(ptyPid, {
-              rawOutput: Buffer.from(''),
+              rawOutput: Buffer.concat(outputChunks),
               output: finalOutput,
               ansiOutput: ansiOutputSnapshot,
               exitCode,
