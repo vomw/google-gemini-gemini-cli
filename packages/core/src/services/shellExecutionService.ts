@@ -332,9 +332,7 @@ export class ShellExecutionService {
   private static async cleanupLogStream(pid: number): Promise<void> {
     const stream = this.backgroundLogStreams.get(pid);
     if (stream) {
-      await new Promise<void>((resolve) => {
-        stream.end(() => resolve());
-      });
+      stream.end();
       this.backgroundLogStreams.delete(pid);
     }
 
@@ -1221,12 +1219,12 @@ export class ShellExecutionService {
         );
       };
 
-      ptyProcess.onData((data: string) => {
+      const dataListener = spawnedPty.onData((data: string) => {
         const bufferData = Buffer.from(data, 'utf-8');
         handleOutput(bufferData);
       });
 
-      ptyProcess.onExit(
+      const exitListener = spawnedPty.onExit(
         ({ exitCode, signal }: { exitCode: number; signal?: number }) => {
           exited = true;
           abortSignal.removeEventListener('abort', abortHandler);
@@ -1234,9 +1232,18 @@ export class ShellExecutionService {
           // Immediately destroy the PTY to release its master FD.
           // The headless terminal is kept alive until finalize() extracts
           // its buffer contents, then disposed to free memory.
-          ShellExecutionService.destroyPtyProcess(ptyProcess);
+          ShellExecutionService.destroyPtyProcess(spawnedPty!);
 
           const finalize = () => {
+            const entry = ShellExecutionService.activePtys.get(ptyPid);
+            dataListener?.dispose?.();
+            exitListener?.dispose?.();
+
+            if (!entry) {
+              cmdCleanup?.();
+              return;
+            }
+
             render(true);
             cmdCleanup?.();
 
@@ -1278,10 +1285,10 @@ export class ShellExecutionService {
               // Ignore errors during terminal cleanup
             }
 
-            // eslint-disable-next-line @typescript-eslint/no-floating-promises
-            ShellExecutionService.cleanupLogStream(ptyPid).then(() => {
-              ShellExecutionService.activePtys.delete(ptyPid);
-            });
+            // Sync delete to avoid leaking if promise hangs
+            ShellExecutionService.activePtys.delete(ptyPid);
+
+            ShellExecutionService.cleanupLogStream(ptyPid).catch(() => {});
 
             ExecutionLifecycleService.completeWithResult(ptyPid, {
               rawOutput: Buffer.from(''),
@@ -1340,7 +1347,13 @@ export class ShellExecutionService {
       cmdCleanup?.();
 
       if (spawnedPty) {
+        // Immediately destroy to prevent FD leaks, even if activePtys wasn't populated yet
         ShellExecutionService.destroyPtyProcess(spawnedPty);
+        try {
+          ShellExecutionService.cleanupPtyEntry(Number(spawnedPty.pid));
+        } catch {
+          // Ignore errors when reading pid during failure cleanup
+        }
       }
 
       if (error?.message?.includes('posix_spawnp failed')) {
