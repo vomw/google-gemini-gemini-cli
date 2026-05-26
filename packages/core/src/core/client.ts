@@ -805,6 +805,7 @@ export class GeminiClient {
       apiHistoryOverride,
     });
     let isError = false;
+    let streamedResponseText = '';
 
     let loopDetectedAbort = false;
     let loopRecoverResult: { detail?: string } | undefined;
@@ -822,6 +823,9 @@ export class GeminiClient {
         }
         loopRecoverResult = loopResult;
         break;
+      }
+      if (event.type === GeminiEventType.Content) {
+        streamedResponseText += event.value;
       }
       yield event;
 
@@ -861,9 +865,12 @@ export class GeminiClient {
     // We do this immediately after the stream finishes for THIS turn.
     const hooksEnabled = this.config.getEnableHooks();
     if (hooksEnabled) {
-      const responseText = turn.getResponseText() || '';
+      let responseText = streamedResponseText;
+      if (!responseText.trim()) {
+        responseText = turn.getResponseText() || '';
+      }
       const hookState = this.hookStateMap.get(prompt_id);
-      if (hookState && responseText) {
+      if (hookState && responseText.trim()) {
         // Append with newline if not empty
         hookState.cumulativeResponse = hookState.cumulativeResponse
           ? `${hookState.cumulativeResponse}\n${responseText}`
