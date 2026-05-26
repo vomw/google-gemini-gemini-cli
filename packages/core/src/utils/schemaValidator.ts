@@ -69,7 +69,7 @@ export class SchemaValidator {
    *  is null). Otherwise, returns a string describing the error.
    */
   static validate(schema: unknown | undefined, data: unknown): string | null {
-    if (!schema) {
+    if (schema === undefined || schema === null) {
       return null;
     }
     if (typeof data !== 'object' || data === null) {
@@ -100,7 +100,18 @@ export class SchemaValidator {
       return null;
     }
 
-    const valid = validate(data);
+    let valid;
+    try {
+      valid = validate(data);
+    } catch (error) {
+      debugLogger.warn(
+        `Schema validation threw during data validation (${
+          (schema as Record<string, unknown>)?.['$schema'] ?? '<no $schema>'
+        }): ${error instanceof Error ? error.message : String(error)}. ` +
+          'Skipping parameter validation.',
+      );
+      return null;
+    }
     if (!valid && validate.errors) {
       return validator.errorsText(validate.errors, { dataVar: 'params' });
     }
@@ -112,7 +123,7 @@ export class SchemaValidator {
    * otherwise returns a string describing the validation errors.
    */
   static validateSchema(schema: AnySchema | undefined): string | null {
-    if (!schema) {
+    if (schema === undefined || schema === null) {
       return null;
     }
     const validator = getValidator(schema);
