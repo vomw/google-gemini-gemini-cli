@@ -6,6 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { CoderAgentExecutor } from './executor.js';
+import { Task } from './task.js';
 import type {
   ExecutionEventBus,
   RequestContext,
@@ -13,8 +14,22 @@ import type {
 } from '@a2a-js/sdk/server';
 import { EventEmitter } from 'node:events';
 import { requestStorage } from '../http/requestStorage.js';
+import { loadConfig, loadEnvironment } from '../config/config.js';
+import { loadExtensions } from '../config/extension.js';
+import { checkPathTrust } from '@google/gemini-cli-core';
+import { CoderAgentEvent } from '../types.js';
 
 // Mocks for constructor dependencies
+vi.mock('@google/gemini-cli-core', async () => {
+  const actual = await vi.importActual('@google/gemini-cli-core');
+  return {
+    ...actual,
+    SimpleExtensionLoader: vi.fn(),
+    checkPathTrust: vi.fn().mockReturnValue({ isTrusted: false }),
+    isHeadlessMode: vi.fn().mockReturnValue(true),
+  };
+});
+
 vi.mock('../config/config.js', () => ({
   loadConfig: vi.fn().mockReturnValue({
     getSessionId: () => 'test-session',
@@ -111,6 +126,90 @@ describe('CoderAgentExecutor', () => {
     mockEventBus.finished = vi.fn();
 
     executor = new CoderAgentExecutor(mockTaskStore);
+  });
+
+  it('does not honor client-supplied trust or auto-execution settings', async () => {
+    await executor.createTask(
+      'test-task',
+      'test-context',
+      {
+        kind: CoderAgentEvent.StateAgentSettingsEvent,
+        workspacePath: '/tmp',
+        isTrusted: true,
+        autoExecute: true,
+      },
+      mockEventBus,
+    );
+
+    expect(checkPathTrust).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/tmp',
+        isHeadless: true,
+      }),
+    );
+    expect(loadConfig).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.anything(),
+      'test-task',
+      false,
+    );
+    expect(loadEnvironment).not.toHaveBeenCalled();
+    expect(loadExtensions).toHaveBeenLastCalledWith('/tmp', false);
+    expect(Task.create).toHaveBeenLastCalledWith(
+      'test-task',
+      'test-context',
+      expect.anything(),
+      mockEventBus,
+      undefined,
+    );
+  });
+
+  it('loads workspace environment and extensions after server-side trust succeeds', async () => {
+    vi.mocked(checkPathTrust).mockReturnValueOnce({
+      isTrusted: true,
+      source: 'file',
+    });
+
+    await executor.createTask(
+      'test-task',
+      'test-context',
+      {
+        kind: CoderAgentEvent.StateAgentSettingsEvent,
+        workspacePath: '/tmp',
+      },
+      mockEventBus,
+    );
+
+    expect(loadEnvironment).toHaveBeenCalledOnce();
+    expect(loadExtensions).toHaveBeenLastCalledWith('/tmp', true);
+    expect(loadConfig).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.anything(),
+      'test-task',
+      true,
+    );
+  });
+
+  it('keeps auto-execution available for internal opt-in flows', async () => {
+    await executor.createTask(
+      'test-task',
+      'test-context',
+      {
+        kind: CoderAgentEvent.StateAgentSettingsEvent,
+        workspacePath: '/tmp',
+        autoExecute: true,
+      },
+      mockEventBus,
+      { allowAutoExecute: true },
+    );
+
+    expect(Task.create).toHaveBeenLastCalledWith(
+      'test-task',
+      'test-context',
+      expect.anything(),
+      mockEventBus,
+      true,
+    );
   });
 
   it('should distinguish between primary and secondary execution', async () => {
