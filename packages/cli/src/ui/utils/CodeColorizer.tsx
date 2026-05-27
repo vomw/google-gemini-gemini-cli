@@ -136,6 +136,7 @@ export interface ColorizeCodeOptions {
   hideLineNumbers?: boolean;
   disableColor?: boolean;
   returnLines?: boolean;
+  onOverflowChange?: (isOverflowing: boolean) => void;
   paddingX?: number;
 }
 
@@ -161,6 +162,7 @@ export function colorizeCode({
   hideLineNumbers = false,
   disableColor = false,
   returnLines = false,
+  onOverflowChange,
   paddingX = 0,
 }: ColorizeCodeOptions): React.ReactNode | React.ReactNode[] {
   const codeToHighlight = code.replace(/\n$/, '');
@@ -233,6 +235,7 @@ export function colorizeCode({
           maxWidth={maxWidth}
           additionalHiddenLinesCount={hiddenLinesCount}
           overflowDirection="top"
+          onOverflowChange={onOverflowChange}
         >
           {renderedLines}
         </MaxSizedBox>
@@ -284,6 +287,7 @@ export function colorizeCode({
           maxWidth={maxWidth}
           additionalHiddenLinesCount={hiddenLinesCount}
           overflowDirection="top"
+          onOverflowChange={onOverflowChange}
         >
           {fallbackLines}
         </MaxSizedBox>

@@ -89,6 +89,7 @@ interface DiffRendererProps {
   availableTerminalHeight?: number;
   terminalWidth: number;
   theme?: Theme;
+  onOverflowChange?: (isOverflowing: boolean) => void;
   disableColor?: boolean;
   paddingX?: number;
 }
@@ -102,6 +103,7 @@ export const DiffRenderer: React.FC<DiffRendererProps> = ({
   availableTerminalHeight,
   terminalWidth,
   theme,
+  onOverflowChange,
   disableColor = false,
   paddingX = 0,
 }) => {
@@ -160,6 +162,16 @@ export const DiffRenderer: React.FC<DiffRendererProps> = ({
         maxWidth: terminalWidth,
         theme,
         settings,
+        onOverflowChange,
+      });
+    } else {
+      return renderDiffContent(
+        parsedLines,
+        filename,
+        tabWidth,
+        availableTerminalHeight,
+        terminalWidth,
+        onOverflowChange,
         disableColor,
         paddingX,
       });
@@ -194,6 +206,7 @@ export const DiffRenderer: React.FC<DiffRendererProps> = ({
     theme,
     settings,
     tabWidth,
+    onOverflowChange,
     disableColor,
     paddingX,
   ]);
@@ -225,6 +238,10 @@ export const renderDiffLines = ({
   parsedLines,
   filename,
   tabWidth = DEFAULT_TAB_WIDTH,
+  availableTerminalHeight: number | undefined,
+  terminalWidth: number,
+  onOverflowChange?: (isOverflowing: boolean) => void,
+) => {
   terminalWidth,
   disableColor = false,
 }: RenderDiffLinesOptions): React.ReactNode[] => {
@@ -395,6 +412,16 @@ export const renderDiffLines = ({
     [],
   );
 
+  return (
+    <MaxSizedBox
+      maxHeight={availableTerminalHeight}
+      maxWidth={terminalWidth}
+      key={key}
+      onOverflowChange={onOverflowChange}
+    >
+      {content}
+    </MaxSizedBox>
+  );
   return content;
 };
 
